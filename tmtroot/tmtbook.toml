@@ -1,0 +1,8 @@
+[book]
+title = "Nitium docs"
+lang = "en"
+dest = "dist"
+
+[build]
+base = "/nitium"
+kinds = ["*", "!config", "!index"]

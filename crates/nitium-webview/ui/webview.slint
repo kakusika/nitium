@@ -1,0 +1,215 @@
+// Copyright © SixtyFPS GmbH <info@slint.dev>
+// SPDX-License-Identifier: MIT
+
+import { Palette } from "std-widgets.slint";
+
+// Low-level bridge between the rendered page and the browser engine:
+// frames in, input out. Navigation and tab state live in the application.
+export global WebviewLogic {
+    callback theme(scheme: ColorScheme);
+    callback key_event(event: KeyEvent, is_pressed: bool);
+    callback resize(width: physical-length, height: physical-length);
+    callback pointer(event: PointerEvent, x: physical-length, y: physical-length);
+    callback scroll(initial_x: physical-length, initial_y: physical-length, delta_x: length, delta_y: length);
+
+    /// The text being converted by the input method changed (empty when it ended).
+    callback ime-preedit(text: string);
+    /// The input method committed final text.
+    callback ime-commit(text: string);
+
+    in property <image> web_content;
+
+    /// CSS name of the cursor the page wants (`"pointer"`, `"text"`, `"ew-resize"`, …).
+    in property <string> cursor: "default";
+
+    /// True while a text field in the page has focus; the area is where that field is,
+    /// relative to the page, so the input method can place its candidate window there.
+    in property <bool> ime-active: false;
+    in property <length> ime-x;
+    in property <length> ime-y;
+    in property <length> ime-width;
+    in property <length> ime-height;
+
+    in-out property <length> viewport_width: 1224px;
+    in-out property <length> viewport_height: 768px;
+
+    out property <length> mouse_x;
+    out property <length> mouse_y;
+}
+
+export component Webview inherits Rectangle {
+    background: #ffffff;
+    clip: true;
+
+    property <ColorScheme> scheme: Palette.color-scheme;
+    changed scheme => WebviewLogic.theme(scheme);
+
+    /// Moves keyboard focus into the page: to the input-method bridge while a text field
+    /// is focused in the page, otherwise to the plain key forwarder.
+    public function focus-content() {
+        if WebviewLogic.ime-active {
+            ime-input.focus();
+        } else {
+            focus_scope.focus();
+        }
+    }
+
+    pure function cursor-for(name: string) -> MouseCursor {
+        if name == "pointer" { return MouseCursor.pointer; }
+        if name == "text" { return MouseCursor.text; }
+        if name == "none" { return MouseCursor.none; }
+        if name == "help" { return MouseCursor.help; }
+        if name == "progress" { return MouseCursor.progress; }
+        if name == "wait" { return MouseCursor.wait; }
+        if name == "crosshair" { return MouseCursor.crosshair; }
+        if name == "alias" { return MouseCursor.alias; }
+        if name == "copy" { return MouseCursor.copy; }
+        if name == "move" { return MouseCursor.move; }
+        if name == "no-drop" { return MouseCursor.no-drop; }
+        if name == "not-allowed" { return MouseCursor.not-allowed; }
+        if name == "grab" { return MouseCursor.grab; }
+        if name == "grabbing" { return MouseCursor.grabbing; }
+        if name == "col-resize" { return MouseCursor.col-resize; }
+        if name == "row-resize" { return MouseCursor.row-resize; }
+        if name == "n-resize" { return MouseCursor.n-resize; }
+        if name == "e-resize" { return MouseCursor.e-resize; }
+        if name == "s-resize" { return MouseCursor.s-resize; }
+        if name == "w-resize" { return MouseCursor.w-resize; }
+        if name == "ne-resize" { return MouseCursor.ne-resize; }
+        if name == "nw-resize" { return MouseCursor.nw-resize; }
+        if name == "se-resize" { return MouseCursor.se-resize; }
+        if name == "sw-resize" { return MouseCursor.sw-resize; }
+        if name == "ew-resize" { return MouseCursor.ew-resize; }
+        if name == "ns-resize" { return MouseCursor.ns-resize; }
+        if name == "nesw-resize" { return MouseCursor.nesw-resize; }
+        if name == "nwse-resize" { return MouseCursor.nwse-resize; }
+        return MouseCursor.default;
+    }
+
+    // While a text field is focused, the input method needs a real text-editing item to
+    // talk to. This invisible-when-idle `TextInput` is that item: it receives the
+    // composition and the committed text, and every other key is forwarded unchanged.
+    property <bool> ime-active: WebviewLogic.ime-active;
+    changed ime-active => {
+        if root.ime-active {
+            ime-input.focus();
+        } else if ime-input.has-focus {
+            focus_scope.focus();
+        }
+    }
+
+    init => {
+        WebviewLogic.theme(root.scheme);
+        if root.width > 0px && root.height > 0px {
+            WebviewLogic.viewport_width = root.width;
+            WebviewLogic.viewport_height = root.height;
+            WebviewLogic.resize(root.width, root.height);
+        }
+    }
+
+    focus_scope := FocusScope {
+        width: 100%;
+        height: 100%;
+
+        key-pressed(event) => {
+            WebviewLogic.key_event(event, true);
+            accept
+        }
+        key-released(event) => {
+            WebviewLogic.key_event(event, false);
+            accept
+        }
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: root.cursor-for(WebviewLogic.cursor);
+
+            image := Image {
+                source: WebviewLogic.web_content;
+                width: 100%;
+                height: 100%;
+            }
+
+            if WebviewLogic.web_content.width == 0: Text {
+                text: "Loading with Servo...";
+                color: #888888;
+                font-size: 14px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            changed width => {
+                if self.width > 0px {
+                    WebviewLogic.viewport_width = self.width;
+                    WebviewLogic.resize(self.width, self.height);
+                }
+            }
+            changed height => {
+                if self.height > 0px {
+                    WebviewLogic.viewport_height = self.height;
+                    WebviewLogic.resize(self.width, self.height);
+                }
+            }
+
+            clicked => { root.focus-content(); }
+
+            pointer-event(event) => WebviewLogic.pointer(event, self.mouse-x, self.mouse-y);
+
+            scroll-event(event) => {
+                WebviewLogic.scroll(self.mouse-x, self.mouse-y, event.delta-x, event.delta-y);
+                return accept;
+            }
+        }
+    }
+
+    // Sits over the page's text field. It only paints while a conversion is in progress
+    // (a small chip showing the text being composed); otherwise it is fully transparent.
+    ime-box := Rectangle {
+        x: WebviewLogic.ime-active ? WebviewLogic.ime-x : 0px;
+        y: WebviewLogic.ime-active ? WebviewLogic.ime-y : 0px;
+        width: WebviewLogic.ime-active ? max(WebviewLogic.ime-width, 8px) : 0px;
+        height: WebviewLogic.ime-active ? max(WebviewLogic.ime-height, 8px) : 0px;
+        background: ime-input.preedit-text != "" ? #fff6c2 : transparent;
+        clip: true;
+
+        ime-input := TextInput {
+            width: 100%;
+            height: 100%;
+            single-line: true;
+            color: #202020;
+            font-size: max(12px, parent.height * 0.6);
+            vertical-alignment: center;
+
+            key-pressed(event) => {
+                WebviewLogic.key_event(event, true);
+                accept
+            }
+            key-released(event) => {
+                WebviewLogic.key_event(event, false);
+                accept
+            }
+            edited => {
+                WebviewLogic.ime-commit(self.text);
+                self.text = "";
+            }
+            changed preedit-text => {
+                WebviewLogic.ime-preedit(self.preedit-text);
+            }
+        }
+
+        // The `TextInput` would swallow clicks meant for the page's own field (moving
+        // the caret, selecting). This layer takes them first and forwards them, in
+        // page coordinates.
+        TouchArea {
+            mouse-cursor: root.cursor-for(WebviewLogic.cursor);
+            pointer-event(event) => {
+                WebviewLogic.pointer(event, WebviewLogic.ime-x + self.mouse-x, WebviewLogic.ime-y + self.mouse-y);
+            }
+            scroll-event(event) => {
+                WebviewLogic.scroll(WebviewLogic.ime-x + self.mouse-x, WebviewLogic.ime-y + self.mouse-y, event.delta-x, event.delta-y);
+                return accept;
+            }
+        }
+    }
+}

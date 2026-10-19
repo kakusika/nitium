@@ -1,0 +1,27 @@
+## Context
+Nitium is a Servo + Slint desktop browser (`apps/nitium` = UI and glue, `crates/nitium-webview` = Servo
+integration, `crates/nitium-core` = Servo-free logic with unit tests). Phases 1-4 of the daily-driver
+effort (tabs, shortcuts, IME, find, zoom, persistence, dialogs, menus) are written and `cargo check`
+passes (user, 2026-10-16).
+
+**Working rules for this task**
+- Do not run cargo on this repo: Servo makes it too heavy for the user's machine. The only acceptable
+  command is `cargo test -p nitium-core` (no Servo, ~11 s). Ask the user to run `cargo check` / `cargo run`.
+- The agent sandbox cannot reach the Wayland compositor, so GUI behaviour must be verified by the user.
+- Put testable logic in `nitium-core`; keep `apps/nitium` and `nitium-webview` thin.
+- Servo 0.5.0 sources are not in the local cargo registry; fetch with
+  `curl https://static.crates.io/crates/<crate>/<crate>-0.5.0.crate` into the scratchpad and read only.
+- Do not commit without asking.
+
+# Persist cookies and web storage
+
+Logins are lost on every restart: Servo runs without a profile directory. `nitium-core::profile::Profile::engine_dir()`
+(`<profile>/engine`) is reserved for this but nothing passes it to Servo.
+
+## Steps
+- [ ] Read Servo 0.5 `ServoBuilder::opts` / `Opts` (`config_dir`, `storage`?) and `servo_config::opts` to find how to
+      set the directory for cookies, localStorage, IndexedDB and cache
+- [ ] Pass `Profile::engine_dir()` from `BrowserApp::install` into `ServoBrowser::new`
+- [ ] Verify a login survives a restart (user)
+- [ ] Settings/UI: "Clear cookies and site data" using `Servo::site_data_manager()` (`clear_cookies`, `clear_site_data`)
+- [ ] Private window / ephemeral profile (`NITIUM_PROFILE_DIR` pointing at a temp dir already works as a workaround)

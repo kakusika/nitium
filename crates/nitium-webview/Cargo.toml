@@ -1,0 +1,33 @@
+[package]
+name = "nitium-webview"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+links = "nitium_webview"
+build = "build.rs"
+
+[dependencies]
+servo = "0.5.0"
+surfman = { version = "0.13.0", features = ["chains"] }
+smol = "2"
+glow = "0.17"
+gl = "0.14"
+gleam = "0.15"
+image = { workspace = true }
+winit = "0.30"
+rustls = { version = "0.23", features = ["ring"] }
+euclid = "0.22"
+thiserror = "2"
+log = "0.4"
+url = "2"
+content-security-policy = "=0.8.2"
+slint = { workspace = true }
+origiri-viewport = { workspace = true }
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+ash = "0.38"
+
+[build-dependencies]
+gl_generator = "0.14"
+slint-build = { workspace = true }
