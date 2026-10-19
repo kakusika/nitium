@@ -12,6 +12,7 @@ nitium-core = { workspace = true }
 nitium-settings = { workspace = true }
 nitium-shell = { workspace = true }
 origiri = { workspace = true }
+origiri-mobile = { workspace = true }
 origiri-theme = { workspace = true }
 
 #= Crates.io

@@ -5194,6 +5194,7 @@ dependencies = [
  "nitium-shell",
  "origiri",
  "origiri-build",
+ "origiri-mobile",
  "origiri-theme",
  "slint",
  "slint-build",
@@ -5965,6 +5966,10 @@ version = "0.1.0"
 dependencies = [
  "slint-build",
 ]
+
+[[package]]
+name = "origiri-mobile"
+version = "0.1.0"
 
 [[package]]
 name = "origiri-theme"
@@ -12540,10 +12545,6 @@ version = "0.1.0"
 
 [[patch.unused]]
 name = "origiri-icons"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "origiri-mobile"
 version = "0.1.0"
 
 [[patch.unused]]

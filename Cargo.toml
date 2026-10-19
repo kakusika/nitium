@@ -32,6 +32,7 @@ origiri = { git = "https://github.com/kakusika/origiri-frameworks.git" }
 origiri-build = { git = "https://github.com/kakusika/origiri-frameworks.git" }
 origiri-config = { git = "https://github.com/kakusika/origiri-frameworks.git" }
 origiri-icons = { git = "https://github.com/kakusika/origiri-frameworks.git" }
+origiri-mobile = { git = "https://github.com/kakusika/origiri-frameworks.git" }
 origiri-panes = { git = "https://github.com/kakusika/origiri-frameworks.git" }
 origiri-theme = { git = "https://github.com/kakusika/origiri-frameworks.git" }
 origiri-viewport = { git = "https://github.com/kakusika/origiri-frameworks.git" }
