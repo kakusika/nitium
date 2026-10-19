@@ -19,8 +19,8 @@ passes (user, 2026-10-16).
 that starts loading immediately. With many tabs this is slow and memory hungry.
 
 ## Steps
-- [ ] Open only the active tab's `WebView` at startup; keep the others as rows (title/url from the session)
-- [ ] Create the `WebView` on first selection (`ServoBrowser::open_tab` on demand); needs the tab list in
+- [x] Open only the active tab's `WebView` at startup; keep the others as rows (title/url from the session)
+- [x] Create the `WebView` on first selection (`ServoBrowser::open_tab` on demand); needs the tab list in
       `BrowserApp` to distinguish "row without engine tab" from live tabs
-- [ ] Persist titles in the session (`Session` currently stores only URLs) so unloaded tabs show names
-- [ ] Extend `nitium_core::session::Session` + tests accordingly
+- [x] Persist titles in the session (`Session` currently stores only URLs) so unloaded tabs show names
+- [x] Extend `nitium_core::session::Session` + tests accordingly

@@ -78,6 +78,42 @@ pub enum SettingsError {
     InvalidUrl(String),
 }
 
+/// Display entry for theme preset selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThemePresetEntry {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub is_dark: bool,
+}
+
+pub const THEME_PRESETS: &[ThemePresetEntry] = &[
+    ThemePresetEntry { id: "system", name: "System", is_dark: true },
+    ThemePresetEntry { id: "dark", name: "Origiri Dark", is_dark: true },
+    ThemePresetEntry { id: "light", name: "Origiri Light", is_dark: false },
+    ThemePresetEntry { id: "tokyonight-night", name: "Tokyo Night", is_dark: true },
+    ThemePresetEntry { id: "tokyonight-day", name: "Tokyo Day", is_dark: false },
+    ThemePresetEntry { id: "catppuccin-mocha", name: "Catppuccin Mocha", is_dark: true },
+    ThemePresetEntry { id: "catppuccin-latte", name: "Catppuccin Latte", is_dark: false },
+    ThemePresetEntry { id: "flexoki-dark", name: "Flexoki Dark", is_dark: true },
+    ThemePresetEntry { id: "flexoki-light", name: "Flexoki Light", is_dark: false },
+];
+
+pub const CORNER_RADIUS_PRESETS: &[(&str, &str, f32)] = &[
+    ("disabled", "None (0px)", 0.0),
+    ("small", "Small (4px)", 4.0),
+    ("medium", "Medium (8px)", 8.0),
+    ("large", "Large (14px)", 14.0),
+];
+
+pub const ACCENT_COLOR_PRESETS: &[(&str, &str)] = &[
+    ("default", "Default"),
+    ("#d12a55", "Crimson"),
+    ("#3b82f6", "Blue"),
+    ("#10b981", "Emerald"),
+    ("#8b5cf6", "Purple"),
+    ("#f97316", "Orange"),
+];
+
 /// Persistent user configuration for Nitium.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -90,6 +126,12 @@ pub struct Settings {
     pub restore_session: bool,
     /// UI theme mode (System, Light, Dark).
     pub theme: ThemeMode,
+    /// Origiri theme preset id ("system", "dark", "light", "tokyonight-night", etc.).
+    pub theme_preset: String,
+    /// Custom accent color in hex (e.g. "#d12a55") or None for preset default.
+    pub accent_color: Option<String>,
+    /// Corner radius preset ("disabled", "small", "medium", "large").
+    pub corner_radius: String,
 }
 
 impl Default for Settings {
@@ -99,6 +141,9 @@ impl Default for Settings {
             search_url: SEARCH_PRESETS[0].url_template.to_string(),
             restore_session: true,
             theme: ThemeMode::default(),
+            theme_preset: "system".to_string(),
+            accent_color: None,
+            corner_radius: "small".to_string(),
         }
     }
 }
@@ -140,6 +185,12 @@ impl Settings {
         }
         if self.home_url.trim().is_empty() {
             self.home_url = defaults.home_url;
+        }
+        if self.theme_preset.trim().is_empty() {
+            self.theme_preset = defaults.theme_preset;
+        }
+        if self.corner_radius.trim().is_empty() {
+            self.corner_radius = defaults.corner_radius;
         }
         self
     }
@@ -193,7 +244,12 @@ mod tests {
         assert!(settings.search_url.contains("%s"));
         assert!(settings.restore_session);
         assert_eq!(settings.theme, ThemeMode::System);
+        assert_eq!(settings.theme_preset, "system");
+        assert_eq!(settings.accent_color, None);
+        assert_eq!(settings.corner_radius, "small");
         assert!(SEARCH_PRESETS.iter().all(|preset| preset.url_template.contains("%s")));
+        assert!(THEME_PRESETS.iter().any(|preset| preset.id == "system"));
+        assert!(THEME_PRESETS.iter().any(|preset| preset.id == "catppuccin-mocha"));
     }
 
     #[test]
@@ -245,6 +301,9 @@ mod tests {
             search_url: "https://duckduckgo.com/?q=%s".into(),
             restore_session: false,
             theme: ThemeMode::Dark,
+            theme_preset: "catppuccin-mocha".into(),
+            accent_color: Some("#d12a55".into()),
+            corner_radius: "large".into(),
         };
 
         settings.save_to_path(&path).expect("save");
@@ -261,9 +320,14 @@ mod tests {
             search_url: "https://broken.com".into(),
             restore_session: true,
             theme: ThemeMode::System,
+            theme_preset: "".into(),
+            accent_color: None,
+            corner_radius: "   ".into(),
         };
         let sanitized = broken.sanitized();
         assert_eq!(sanitized.home_url, DEFAULT_HOME_URL);
         assert_eq!(sanitized.search_url, SEARCH_PRESETS[0].url_template);
+        assert_eq!(sanitized.theme_preset, "system");
+        assert_eq!(sanitized.corner_radius, "small");
     }
 }

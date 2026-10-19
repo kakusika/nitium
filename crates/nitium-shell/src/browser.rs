@@ -14,7 +14,7 @@ use nitium_core::history::History;
 use nitium_core::ime::{ImeAction, ImeState};
 use nitium_core::input::{self, BLANK_URL};
 use nitium_core::profile::Profile;
-use nitium_core::session::Session;
+use nitium_core::session::{Session, SessionTab};
 use nitium_core::settings::{SEARCH_PRESETS, Settings, SettingsExt, ThemeMode};
 use nitium_core::shortcuts::{self, Modifiers, Shortcut};
 use nitium_core::tabs::{CloseOutcome, TabEntry, TabList};
@@ -24,8 +24,8 @@ use slint::platform::Key;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use crate::{
-    AppWindow, BrowserEvent, BrowserLogic, EngineFactory, MenuRow, SuggestionInfo, TabInfo,
-    WebEngine, WebviewLogic,
+    AppWindow, BookmarkItem, BrowserEvent, BrowserLogic, EngineFactory, HistoryItem, MenuRow,
+    SuggestionInfo, TabInfo, WebEngine, WebviewLogic,
 };
 
 const MAX_SUGGESTIONS: usize = 8;
@@ -62,8 +62,9 @@ pub struct BrowserApp {
     /// Slint view model mirrored from `tab_list`.
     tabs: Rc<VecModel<TabInfo>>,
     /// Pages to open once the engine is up, and the index of the one to show.
-    start_urls: Vec<String>,
+    start_tabs: Vec<SessionTab>,
     start_active: usize,
+    lazy_id_counter: Cell<u32>,
     dark_mode: Cell<bool>,
 
     /// `None` when no profile directory could be determined; nothing is persisted then.
@@ -83,19 +84,37 @@ pub struct BrowserApp {
     last_pointer: Cell<(f32, f32)>,
 }
 
+fn format_timestamp(unix_secs: u64) -> String {
+    let now = unix_now();
+    if now >= unix_secs {
+        let diff = now - unix_secs;
+        if diff < 60 {
+            return "Just now".to_string();
+        } else if diff < 3600 {
+            return format!("{}m ago", diff / 60);
+        } else if diff < 86400 {
+            return format!("{}h ago", diff / 3600);
+        } else if diff < 86400 * 7 {
+            return format!("{}d ago", diff / 86400);
+        }
+    }
+    let days = unix_secs / 86400;
+    format!("{days}d after 1970")
+}
+
 /// Decides what to open at startup: command-line pages, else the previous session,
 /// else the home page. Returns the pages and the index of the active one.
 fn startup_pages(
     cli_args: &[String],
     profile: Option<&Profile>,
     settings: &Settings,
-) -> (Vec<String>, usize) {
+) -> (Vec<SessionTab>, usize) {
     if !cli_args.is_empty() {
-        let urls = cli_args
+        let tabs = cli_args
             .iter()
-            .map(|arg| input::resolve(arg, &settings.search_url))
+            .map(|arg| SessionTab::new(input::resolve(arg, &settings.search_url), ""))
             .collect();
-        return (urls, 0);
+        return (tabs, 0);
     }
     if settings.restore_session {
         if let Some(profile) = profile {
@@ -106,7 +125,7 @@ fn startup_pages(
         }
     }
     let home = input::resolve(&settings.home_url, &settings.search_url);
-    (vec![home], 0)
+    (vec![SessionTab::new(home, "")], 0)
 }
 
 impl BrowserApp {
@@ -121,7 +140,7 @@ impl BrowserApp {
         let settings = profile.as_ref().map(Settings::load).unwrap_or_default();
         let bookmarks = profile.as_ref().map(Bookmarks::load).unwrap_or_default();
         let history = profile.as_ref().map(History::load).unwrap_or_default();
-        let (start_urls, start_active) = startup_pages(&cli_args, profile.as_ref(), &settings);
+        let (start_tabs, start_active) = startup_pages(&cli_args, profile.as_ref(), &settings);
 
         let this = Rc::new_cyclic(|weak| Self {
             weak_self: weak.clone(),
@@ -130,8 +149,9 @@ impl BrowserApp {
             engine: RefCell::new(None),
             tab_list: RefCell::new(TabList::new()),
             tabs: Rc::new(VecModel::default()),
-            start_urls,
+            start_tabs,
             start_active,
+            lazy_id_counter: Cell::new(1_000_000),
             dark_mode: Cell::new(false),
             profile,
             settings: RefCell::new(settings),
@@ -245,8 +265,16 @@ impl BrowserApp {
         }
         {
             let this = this.clone();
-            browser.on_save_settings(move |home, search, restore, theme| {
-                this.save_settings(home.as_str(), search.as_str(), restore, theme as usize);
+            browser.on_save_settings(move |home, search, restore, theme, preset, accent, radius| {
+                this.save_settings(
+                    home.as_str(),
+                    search.as_str(),
+                    restore,
+                    theme as usize,
+                    preset.as_str(),
+                    accent.as_str(),
+                    radius.as_str(),
+                );
             });
         }
         {
@@ -266,6 +294,58 @@ impl BrowserApp {
         {
             let this = this.clone();
             browser.on_clear_browsing_data(move || this.clear_browsing_data());
+        }
+        {
+            let this = this.clone();
+            browser.on_open_bookmarks(move || this.open_bookmarks());
+        }
+        {
+            let this = this.clone();
+            browser.on_close_bookmarks(move || this.close_bookmarks());
+        }
+        {
+            let this = this.clone();
+            browser.on_filter_bookmarks(move |query| this.filter_bookmarks(query.as_str()));
+        }
+        {
+            let this = this.clone();
+            browser.on_open_bookmark(move |url| this.open_bookmark(url.as_str()));
+        }
+        {
+            let this = this.clone();
+            browser.on_open_bookmark_new_tab(move |url| this.open_bookmark_new_tab(url.as_str()));
+        }
+        {
+            let this = this.clone();
+            browser.on_remove_bookmark(move |url| this.remove_bookmark(url.as_str()));
+        }
+        {
+            let this = this.clone();
+            browser.on_open_history(move || this.open_history());
+        }
+        {
+            let this = this.clone();
+            browser.on_close_history(move || this.close_history());
+        }
+        {
+            let this = this.clone();
+            browser.on_filter_history(move |query| this.filter_history(query.as_str()));
+        }
+        {
+            let this = this.clone();
+            browser.on_open_history_item(move |url| this.open_history_item(url.as_str()));
+        }
+        {
+            let this = this.clone();
+            browser.on_open_history_new_tab(move |url| this.open_history_new_tab(url.as_str()));
+        }
+        {
+            let this = this.clone();
+            browser.on_remove_history_item(move |url| this.remove_history_item(url.as_str()));
+        }
+        {
+            let this = this.clone();
+            browser.on_clear_all_history(move || this.clear_all_history());
         }
 
         let webview = app.global::<WebviewLogic>();
@@ -311,6 +391,12 @@ impl BrowserApp {
         {
             let this = this.clone();
             webview.on_ime_commit(move |text| this.ime_commit(text.as_str()));
+        }
+
+        if let Some(app) = this.app.upgrade() {
+            let settings = this.settings.borrow();
+            let is_dark = crate::theme::apply_theme(&app, &settings, true);
+            this.dark_mode.set(is_dark);
         }
 
         this
@@ -361,8 +447,33 @@ impl BrowserApp {
             }
         }
 
-        for (index, url) in self.start_urls.iter().enumerate() {
-            self.open_tab(url, index == self.start_active);
+        if self.start_tabs.is_empty() {
+            self.new_tab();
+        } else {
+            let active_idx = self.start_active.min(self.start_tabs.len() - 1);
+            let mut active_tab_id = None;
+            for (index, tab) in self.start_tabs.iter().enumerate() {
+                if index == active_idx {
+                    let live_id = self
+                        .engine
+                        .borrow()
+                        .as_ref()
+                        .map(|e| e.open_tab(&tab.url, false));
+                    if let Some(id) = live_id {
+                        self.push_tab_row(id, &tab.url);
+                        if !tab.title.is_empty() {
+                            self.update_row(id, |entry| entry.title = tab.title.clone());
+                        }
+                        active_tab_id = Some(id);
+                    }
+                } else {
+                    let lazy_id = self.next_lazy_id();
+                    self.push_lazy_tab_row(lazy_id, &tab.url, &tab.title);
+                }
+            }
+            if let Some(id) = active_tab_id {
+                self.select_tab(id);
+            }
         }
     }
 
@@ -481,6 +592,12 @@ impl BrowserApp {
         }
     }
 
+    fn next_lazy_id(&self) -> TabId {
+        let id = self.lazy_id_counter.get();
+        self.lazy_id_counter.set(id + 1);
+        id
+    }
+
     fn push_tab_row(&self, tab: TabId, url: &str) -> usize {
         let mut list = self.tab_list.borrow_mut();
         list.push(tab, url);
@@ -489,8 +606,49 @@ impl BrowserApp {
         list.len()
     }
 
+    fn push_lazy_tab_row(&self, tab: TabId, url: &str, title: &str) -> usize {
+        let mut list = self.tab_list.borrow_mut();
+        list.push_lazy(tab, url, title);
+        let entry = list.get(tab).expect("just pushed");
+        self.tabs.push(to_tab_info(entry));
+        list.len()
+    }
+
     fn select_tab(&self, tab: TabId) {
-        self.show_tab(tab, true);
+        let is_loaded = self.tab_list.borrow().is_loaded(tab);
+        let actual_id = if !is_loaded {
+            let (url, _title) = self
+                .tab_list
+                .borrow()
+                .get(tab)
+                .map(|e| (e.url.clone(), e.title.clone()))
+                .unwrap_or_default();
+            let live_id = self
+                .engine
+                .borrow()
+                .as_ref()
+                .map(|e| e.open_tab(&url, false));
+            if let Some(live_id) = live_id {
+                let mut list = self.tab_list.borrow_mut();
+                list.replace_id(tab, live_id);
+                list.mark_loaded(live_id);
+                drop(list);
+                for i in 0..self.tabs.row_count() {
+                    let mut row = self.tabs.row_data(i).expect("row in range");
+                    if row.id == tab as i32 {
+                        row.id = live_id as i32;
+                        self.tabs.set_row_data(i, row);
+                        break;
+                    }
+                }
+                live_id
+            } else {
+                tab
+            }
+        } else {
+            tab
+        };
+        self.show_tab(actual_id, true);
     }
 
     /// Brings `tab` to the front. A blank tab gets the address bar's focus only when
@@ -530,6 +688,7 @@ impl BrowserApp {
     }
 
     fn close_tab(&self, tab: TabId) {
+        let is_loaded = self.tab_list.borrow().is_loaded(tab);
         let Some(index) = self.tab_list.borrow().index_of(tab) else {
             return;
         };
@@ -537,7 +696,9 @@ impl BrowserApp {
 
         // Questions from a closed page can no longer be answered; dropping them dismisses them.
         self.dialogs.borrow_mut().retain(|(owner, _)| *owner != tab);
-        self.with_engine(|engine| engine.close_tab(tab));
+        if is_loaded {
+            self.with_engine(|engine| engine.close_tab(tab));
+        }
         self.tabs.remove(index);
 
         match outcome {
@@ -608,6 +769,13 @@ impl BrowserApp {
             }
         }
         self.sync_active(false);
+        if let Some(app) = self.app.upgrade() {
+            let logic = app.global::<BrowserLogic>();
+            if logic.get_bookmarks_open() {
+                let filter = logic.get_bookmarks_filter();
+                self.populate_bookmarks(filter.as_str());
+            }
+        }
     }
 
     /// Bookmarks first, then history, without duplicates.
@@ -658,6 +826,14 @@ impl BrowserApp {
                 return false;
             };
             let logic = app.global::<BrowserLogic>();
+            if logic.get_bookmarks_open() {
+                self.close_bookmarks();
+                return true;
+            }
+            if logic.get_history_open() {
+                self.close_history();
+                return true;
+            }
             if logic.get_settings_open() {
                 self.close_settings();
                 return true;
@@ -721,6 +897,8 @@ impl BrowserApp {
                 }
             }
             Shortcut::Settings => self.toggle_settings(),
+            Shortcut::Bookmarks => self.toggle_bookmarks(),
+            Shortcut::History => self.toggle_history(),
         }
         true
     }
@@ -1257,6 +1435,15 @@ impl BrowserApp {
         logic.set_settings_search_preset(settings.search_preset_index().unwrap_or(6) as i32);
         logic.set_settings_restore_session(settings.restore_session);
         logic.set_settings_theme(settings.theme.as_index() as i32);
+        logic.set_settings_theme_preset(settings.theme_preset.as_str().into());
+        logic.set_settings_accent_color(
+            settings
+                .accent_color
+                .as_deref()
+                .unwrap_or("default")
+                .into(),
+        );
+        logic.set_settings_corner_radius(settings.corner_radius.as_str().into());
         logic.set_settings_status("".into());
         logic.set_settings_open(true);
     }
@@ -1299,12 +1486,22 @@ impl BrowserApp {
         search_url: &str,
         restore_session: bool,
         theme_index: usize,
+        theme_preset: &str,
+        accent_color: &str,
+        corner_radius: &str,
     ) {
         let mut settings = self.settings.borrow_mut();
         settings.home_url = home_url.to_string();
         settings.search_url = search_url.to_string();
         settings.restore_session = restore_session;
         settings.theme = ThemeMode::from_index(theme_index);
+        settings.theme_preset = theme_preset.to_string();
+        settings.accent_color = if accent_color == "default" || accent_color.is_empty() {
+            None
+        } else {
+            Some(accent_color.to_string())
+        };
+        settings.corner_radius = corner_radius.to_string();
         let sanitized = settings.clone().sanitized();
         *settings = sanitized;
 
@@ -1314,11 +1511,12 @@ impl BrowserApp {
             }
         }
 
-        let is_dark = match settings.theme {
-            ThemeMode::Dark => true,
-            ThemeMode::Light => false,
-            ThemeMode::System => false,
+        let is_dark = if let Some(app) = self.app.upgrade() {
+            crate::theme::apply_theme(&app, &settings, true)
+        } else {
+            settings.theme == ThemeMode::Dark
         };
+        self.dark_mode.set(is_dark);
         drop(settings);
         self.with_engine(|engine| engine.set_theme(is_dark));
 
@@ -1329,13 +1527,19 @@ impl BrowserApp {
 
     fn clear_history(&self) {
         self.history.borrow_mut().clear();
+        self.history_dirty.set(true);
         if let Some(profile) = self.profile.as_ref() {
             if let Err(err) = self.history.borrow().save(profile) {
                 eprintln!("nitium: cannot save history: {err}");
             }
         }
         if let Some(app) = self.app.upgrade() {
-            app.global::<BrowserLogic>().set_settings_status("Browsing history cleared.".into());
+            let logic = app.global::<BrowserLogic>();
+            logic.set_settings_status("Browsing history cleared.".into());
+            if logic.get_history_open() {
+                let filter = logic.get_history_filter();
+                self.populate_history(filter.as_str());
+            }
         }
     }
 
@@ -1348,7 +1552,12 @@ impl BrowserApp {
         }
         self.sync_active(false);
         if let Some(app) = self.app.upgrade() {
-            app.global::<BrowserLogic>().set_settings_status("Bookmarks cleared.".into());
+            let logic = app.global::<BrowserLogic>();
+            logic.set_settings_status("Bookmarks cleared.".into());
+            if logic.get_bookmarks_open() {
+                let filter = logic.get_bookmarks_filter();
+                self.populate_bookmarks(filter.as_str());
+            }
         }
     }
 
@@ -1356,6 +1565,183 @@ impl BrowserApp {
         self.with_engine(|engine| engine.clear_browsing_data());
         if let Some(app) = self.app.upgrade() {
             app.global::<BrowserLogic>().set_settings_status("Cookies and cache cleared.".into());
+        }
+    }
+
+    // -- Bookmarks overlay ---------------------------------------------------
+
+    fn open_bookmarks(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let logic = app.global::<BrowserLogic>();
+        logic.set_bookmarks_filter("".into());
+        self.populate_bookmarks("");
+        logic.set_bookmarks_open(true);
+    }
+
+    fn close_bookmarks(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        app.global::<BrowserLogic>().set_bookmarks_open(false);
+    }
+
+    fn toggle_bookmarks(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let logic = app.global::<BrowserLogic>();
+        if logic.get_bookmarks_open() {
+            self.close_bookmarks();
+        } else {
+            self.open_bookmarks();
+        }
+    }
+
+    fn filter_bookmarks(&self, query: &str) {
+        self.populate_bookmarks(query);
+    }
+
+    fn populate_bookmarks(&self, query: &str) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let logic = app.global::<BrowserLogic>();
+        let b = self.bookmarks.borrow();
+        let items: Vec<BookmarkItem> = if query.trim().is_empty() {
+            b.items()
+                .iter()
+                .map(|entry| BookmarkItem {
+                    url: entry.url.as_str().into(),
+                    title: entry.title.as_str().into(),
+                })
+                .collect()
+        } else {
+            b.search(query, 100)
+                .into_iter()
+                .map(|entry| BookmarkItem {
+                    url: entry.url.as_str().into(),
+                    title: entry.title.as_str().into(),
+                })
+                .collect()
+        };
+        logic.set_bookmarks_list(ModelRc::new(VecModel::from(items)));
+    }
+
+    fn open_bookmark(&self, url: &str) {
+        self.close_bookmarks();
+        self.navigate(url);
+    }
+
+    fn open_bookmark_new_tab(&self, url: &str) {
+        self.close_bookmarks();
+        self.open_tab(url, true);
+    }
+
+    fn remove_bookmark(&self, url: &str) {
+        self.bookmarks.borrow_mut().remove(url);
+        if let Some(profile) = &self.profile {
+            if let Err(err) = self.bookmarks.borrow().save(profile) {
+                eprintln!("nitium: cannot save bookmarks: {err}");
+            }
+        }
+        self.sync_active(false);
+        if let Some(app) = self.app.upgrade() {
+            let filter = app.global::<BrowserLogic>().get_bookmarks_filter();
+            self.populate_bookmarks(filter.as_str());
+        }
+    }
+
+    // -- History overlay -----------------------------------------------------
+
+    fn open_history(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let logic = app.global::<BrowserLogic>();
+        logic.set_history_filter("".into());
+        self.populate_history("");
+        logic.set_history_open(true);
+    }
+
+    fn close_history(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        app.global::<BrowserLogic>().set_history_open(false);
+    }
+
+    fn toggle_history(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let logic = app.global::<BrowserLogic>();
+        if logic.get_history_open() {
+            self.close_history();
+        } else {
+            self.open_history();
+        }
+    }
+
+    fn filter_history(&self, query: &str) {
+        self.populate_history(query);
+    }
+
+    fn populate_history(&self, query: &str) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let logic = app.global::<BrowserLogic>();
+        let h = self.history.borrow();
+        let items: Vec<HistoryItem> = if query.trim().is_empty() {
+            h.recent(200)
+                .into_iter()
+                .map(|entry| HistoryItem {
+                    url: entry.url.as_str().into(),
+                    title: entry.title.as_str().into(),
+                    date_label: format_timestamp(entry.last_visit).into(),
+                    visits: entry.visits as i32,
+                })
+                .collect()
+        } else {
+            h.suggest(query, 100)
+                .into_iter()
+                .map(|entry| HistoryItem {
+                    url: entry.url.as_str().into(),
+                    title: entry.title.as_str().into(),
+                    date_label: format_timestamp(entry.last_visit).into(),
+                    visits: entry.visits as i32,
+                })
+                .collect()
+        };
+        logic.set_history_list(ModelRc::new(VecModel::from(items)));
+    }
+
+    fn open_history_item(&self, url: &str) {
+        self.close_history();
+        self.navigate(url);
+    }
+
+    fn open_history_new_tab(&self, url: &str) {
+        self.close_history();
+        self.open_tab(url, true);
+    }
+
+    fn remove_history_item(&self, url: &str) {
+        self.history.borrow_mut().remove(url);
+        self.history_dirty.set(true);
+        if let Some(app) = self.app.upgrade() {
+            let filter = app.global::<BrowserLogic>().get_history_filter();
+            self.populate_history(filter.as_str());
+        }
+    }
+
+    fn clear_all_history(&self) {
+        self.clear_history();
+        if let Some(app) = self.app.upgrade() {
+            let filter = app.global::<BrowserLogic>().get_history_filter();
+            self.populate_history(filter.as_str());
         }
     }
 }

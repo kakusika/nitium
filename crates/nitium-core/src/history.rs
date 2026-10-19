@@ -86,6 +86,24 @@ impl History {
         }
     }
 
+    /// Removes a single page from history by URL. Returns true if removed.
+    pub fn remove(&mut self, url: &str) -> bool {
+        let key = without_fragment(url);
+        let before = self.entries.len();
+        self.entries.retain(|e| without_fragment(&e.url) != key);
+        if self.last_recorded.as_deref() == Some(key) {
+            self.last_recorded = None;
+        }
+        self.entries.len() != before
+    }
+
+    /// Returns history entries ordered by most recent visit first, up to `limit`.
+    pub fn recent(&self, limit: usize) -> Vec<&HistoryEntry> {
+        let mut sorted: Vec<&HistoryEntry> = self.entries.iter().collect();
+        sorted.sort_by(|a, b| b.last_visit.cmp(&a.last_visit));
+        sorted.into_iter().take(limit).collect()
+    }
+
     pub fn clear(&mut self) {
         self.entries.clear();
         self.last_recorded = None;
@@ -238,6 +256,24 @@ mod tests {
         assert!(history.entries().is_empty());
         history.record_visit("https://a.test/", 2);
         assert_eq!(history.entries().len(), 1);
+    }
+
+    #[test]
+    fn remove_and_recent() {
+        let mut history = History::default();
+        history.record_visit("https://a.test/", 10);
+        history.record_visit("https://b.test/", 30);
+        history.record_visit("https://c.test/", 20);
+
+        let recents = history.recent(2);
+        assert_eq!(recents.len(), 2);
+        assert_eq!(recents[0].url, "https://b.test/");
+        assert_eq!(recents[1].url, "https://c.test/");
+
+        assert!(history.remove("https://b.test/"));
+        assert!(!history.remove("https://nonexistent.test/"));
+        assert_eq!(history.entries().len(), 2);
+        assert_eq!(history.recent(5)[0].url, "https://c.test/");
     }
 
     #[test]

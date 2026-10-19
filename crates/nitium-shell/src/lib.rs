@@ -5,6 +5,7 @@
 //! without building the web engine.
 
 pub mod browser;
+pub mod theme;
 
 use slint::ComponentHandle;
 use slint::language::{KeyEvent, PointerEvent};

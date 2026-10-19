@@ -48,6 +48,9 @@ mod tests {
             search_url: "https://duckduckgo.com/?q=%s".into(),
             restore_session: false,
             theme: ThemeMode::System,
+            theme_preset: "catppuccin-mocha".into(),
+            accent_color: Some("#d12a55".into()),
+            corner_radius: "large".into(),
         };
         settings.save(&profile).expect("save");
         assert_eq!(Settings::load(&profile), settings);
@@ -61,6 +64,7 @@ mod tests {
         let settings = Settings::load(&Profile::from_dir(dir));
         assert_eq!(settings.home_url, "https://a.test");
         assert_eq!(settings.search_url, Settings::default().search_url);
+        assert_eq!(settings.theme_preset, Settings::default().theme_preset);
     }
 
     #[test]
@@ -70,6 +74,9 @@ mod tests {
             search_url: "https://no-placeholder.test/".into(),
             restore_session: true,
             theme: ThemeMode::System,
+            theme_preset: "   ".into(),
+            accent_color: None,
+            corner_radius: "".into(),
         }
         .sanitized();
         assert_eq!(settings, Settings::default());

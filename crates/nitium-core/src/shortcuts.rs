@@ -42,6 +42,10 @@ pub enum Shortcut {
     SelectLastTab,
     /// Open settings overlay (Ctrl+,).
     Settings,
+    /// Open bookmarks overlay (Ctrl+Shift+O).
+    Bookmarks,
+    /// Open history overlay (Ctrl+H).
+    History,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -136,6 +140,8 @@ pub fn resolve(text: &str, mods: Modifiers) -> Option<Shortcut> {
         ('9', false) => Some(Shortcut::SelectLastTab),
         (digit @ '1'..='8', false) => Some(Shortcut::SelectTab(digit as usize - '1' as usize)),
         (',', false) => Some(Shortcut::Settings),
+        ('o', true) => Some(Shortcut::Bookmarks),
+        ('h', false) => Some(Shortcut::History),
         _ => None,
     }
 }
@@ -191,8 +197,12 @@ mod tests {
         }
 
         #[test]
-        fn settings() {
+        fn settings_bookmarks_history() {
             assert_eq!(resolve(",", CTRL), Some(Shortcut::Settings));
+            assert_eq!(resolve("o", ctrl_shift()), Some(Shortcut::Bookmarks));
+            assert_eq!(resolve("O", ctrl_shift()), Some(Shortcut::Bookmarks));
+            assert_eq!(resolve("h", CTRL), Some(Shortcut::History));
+            assert_eq!(resolve("H", CTRL), Some(Shortcut::History));
         }
 
         #[test]

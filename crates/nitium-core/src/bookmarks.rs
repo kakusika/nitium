@@ -64,6 +64,19 @@ impl Bookmarks {
         self.items.len() != before
     }
 
+    /// Changes the display title of an existing bookmark. Returns false if not found.
+    pub fn rename(&mut self, url: &str, new_title: &str) -> bool {
+        let key = without_fragment(url);
+        let new_title = new_title.trim();
+        let new_title = if new_title.is_empty() { url } else { new_title };
+        if let Some(item) = self.items.iter_mut().find(|b| without_fragment(&b.url) == key) {
+            item.title = new_title.to_string();
+            true
+        } else {
+            false
+        }
+    }
+
     /// Removes every bookmark.
     pub fn clear(&mut self) {
         self.items.clear();
@@ -172,6 +185,19 @@ mod tests {
         assert!(bookmarks.contains("https://example.com"));
         assert!(!bookmarks.toggle("https://example.com", "E", 2));
         assert!(!bookmarks.contains("https://example.com"));
+    }
+
+    #[test]
+    fn rename_modifies_title() {
+        let mut bookmarks = Bookmarks::default();
+        bookmarks.add("https://example.com", "Old Title", 1);
+        assert!(bookmarks.rename("https://example.com", "New Title"));
+        assert_eq!(bookmarks.items()[0].title, "New Title");
+
+        assert!(!bookmarks.rename("https://nonexistent.com", "Title"));
+        // Empty falls back to url
+        assert!(bookmarks.rename("https://example.com", "   "));
+        assert_eq!(bookmarks.items()[0].title, "https://example.com");
     }
 
     #[test]

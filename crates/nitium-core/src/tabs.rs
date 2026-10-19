@@ -17,6 +17,8 @@ pub struct TabEntry {
     pub active: bool,
     pub can_go_back: bool,
     pub can_go_forward: bool,
+    /// Whether this tab's web engine WebView has been created.
+    pub loaded: bool,
 }
 
 impl TabEntry {
@@ -29,6 +31,20 @@ impl TabEntry {
             active: false,
             can_go_back: false,
             can_go_forward: false,
+            loaded: true,
+        }
+    }
+
+    pub fn new_lazy(id: TabId, url: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            id,
+            title: title.into(),
+            url: url.into(),
+            loading: false,
+            active: false,
+            can_go_back: false,
+            can_go_forward: false,
+            loaded: false,
         }
     }
 }
@@ -99,6 +115,31 @@ impl TabList {
         self.tabs.push(TabEntry::new(id, url));
     }
 
+    /// Appends an unloaded lazy tab (title and URL known, WebView not yet created).
+    pub fn push_lazy(&mut self, id: TabId, url: impl Into<String>, title: impl Into<String>) {
+        self.tabs.push(TabEntry::new_lazy(id, url, title));
+    }
+
+    pub fn is_loaded(&self, id: TabId) -> bool {
+        self.get(id).is_some_and(|t| t.loaded)
+    }
+
+    pub fn mark_loaded(&mut self, id: TabId) {
+        if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == id) {
+            tab.loaded = true;
+        }
+    }
+
+    /// Replaces the tab id (e.g. upgrading a placeholder id to a live engine id).
+    pub fn replace_id(&mut self, old_id: TabId, new_id: TabId) -> bool {
+        if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == old_id) {
+            tab.id = new_id;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Marks `id` as the active tab and clears `active` on all others.
     /// Returns the index of `id` if it exists.
     pub fn select(&mut self, id: TabId) -> Option<usize> {
@@ -163,10 +204,14 @@ impl TabList {
         self.closed_urls.pop()
     }
 
-    /// Builds a persistent [`Session`] snapshot of the current tabs.
+    /// Builds a persistent [`Session`] snapshot of the current tabs including titles.
     pub fn to_session(&self) -> Session {
-        let urls: Vec<String> = self.tabs.iter().map(|t| t.url.clone()).collect();
-        Session::from_tabs(&urls, self.active_index().unwrap_or(0))
+        let entries: Vec<(String, String)> = self
+            .tabs
+            .iter()
+            .map(|t| (t.url.clone(), t.title.clone()))
+            .collect();
+        Session::from_entries(&entries, self.active_index().unwrap_or(0))
     }
 }
 
@@ -217,5 +262,34 @@ mod tests {
         assert_eq!(list.pop_closed_url().as_deref(), Some("https://second.example/"));
         assert_eq!(list.pop_closed_url().as_deref(), Some("https://first.example/"));
         assert_eq!(list.pop_closed_url(), None);
+    }
+
+    #[test]
+    fn lazy_tab_lifecycle() {
+        let mut list = TabList::new();
+        list.push_lazy(100, "https://lazy.example/", "Lazy Page");
+        assert!(!list.is_loaded(100));
+        assert_eq!(list.get(100).unwrap().title, "Lazy Page");
+
+        list.mark_loaded(100);
+        assert!(list.is_loaded(100));
+
+        assert!(list.replace_id(100, 200));
+        assert_eq!(list.get(200).unwrap().title, "Lazy Page");
+        assert!(!list.replace_id(999, 300));
+    }
+
+    #[test]
+    fn session_stores_titles() {
+        let mut list = TabList::new();
+        list.push_lazy(1, "https://a.test/", "Page Alpha");
+        list.push_lazy(2, "https://b.test/", "Page Beta");
+        list.select(2);
+
+        let session = list.to_session();
+        assert_eq!(session.tabs.len(), 2);
+        assert_eq!(session.tabs[0].title, "Page Alpha");
+        assert_eq!(session.tabs[1].title, "Page Beta");
+        assert_eq!(session.active, 1);
     }
 }

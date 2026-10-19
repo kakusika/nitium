@@ -1,9 +1,10 @@
+import { ScrollView } from "std-widgets.slint";
 import { Tokens } from "@origiri/tokens.slint";
 import { IconButton } from "@origiri/widgets.slint";
 import { Icon, TablerIcons } from "@origiri-icons/icons.slint";
 import { Webview, WebviewLogic } from "@webview/webview.slint";
 
-export { WebviewLogic }
+export { Tokens, WebviewLogic }
 
 export struct TabInfo {
     id: int,
@@ -19,6 +20,18 @@ export struct TabInfo {
 export struct SuggestionInfo {
     title: string,
     url: string,
+}
+
+export struct BookmarkItem {
+    url: string,
+    title: string,
+}
+
+export struct HistoryItem {
+    url: string,
+    title: string,
+    date-label: string,
+    visits: int,
 }
 
 /// One row of the popup menu (a context menu or a `<select>` list).
@@ -104,15 +117,41 @@ export global BrowserLogic {
     in-out property <int> settings-search-preset: 0;
     in-out property <bool> settings-restore-session: true;
     in-out property <int> settings-theme: 0;
+    in-out property <string> settings-theme-preset: "system";
+    in-out property <string> settings-accent-color: "default";
+    in-out property <string> settings-corner-radius: "small";
     in property <string> settings-status: "";
 
     callback open-settings();
     callback close-settings();
-    callback save-settings(string, string, bool, int);
+    callback save-settings(string, string, bool, int, string, string, string);
     callback select-search-preset(int);
     callback clear-history();
     callback clear-bookmarks();
     callback clear-browsing-data();
+
+    // Bookmarks overlay
+    in-out property <bool> bookmarks-open: false;
+    in property <[BookmarkItem]> bookmarks-list;
+    in-out property <string> bookmarks-filter: "";
+    callback open-bookmarks();
+    callback close-bookmarks();
+    callback filter-bookmarks(string);
+    callback open-bookmark(string);
+    callback open-bookmark-new-tab(string);
+    callback remove-bookmark(string);
+
+    // History overlay
+    in-out property <bool> history-open: false;
+    in property <[HistoryItem]> history-list;
+    in-out property <string> history-filter: "";
+    callback open-history();
+    callback close-history();
+    callback filter-history(string);
+    callback open-history-item(string);
+    callback open-history-new-tab(string);
+    callback remove-history-item(string);
+    callback clear-all-history();
 }
 
 component BrowserTab inherits Rectangle {
@@ -633,6 +672,92 @@ component SettingsButton inherits Rectangle {
     }
 }
 
+component SettingsColorButton inherits Rectangle {
+    in property <color> swatch-color;
+    in property <string> text;
+    in property <bool> active: false;
+    callback clicked <=> touch.clicked;
+
+    height: 32px;
+    border-radius: Tokens.corner-radius;
+    background: root.active ? Tokens.accent-soft : (touch.has-hover ? Tokens.hover-on-surface : Tokens.surface);
+    border-width: Tokens.border-width;
+    border-color: root.active ? Tokens.accent : Tokens.border-on-surface;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+    }
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: Tokens.spacing-small;
+        padding-left: Tokens.spacing-small;
+        padding-right: Tokens.spacing-small;
+
+        Rectangle {
+            width: 12px;
+            height: 12px;
+            border-radius: 6px;
+            background: root.swatch-color;
+            border-width: 1px;
+            border-color: #ffffff40;
+        }
+
+        Text {
+            text: root.text;
+            color: root.active ? Tokens.accent : (touch.has-hover ? Tokens.text-primary : Tokens.text-secondary);
+            font-size: Tokens.font-size-small;
+            font-weight: root.active ? 600 : 400;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component SearchField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder: "Search...";
+    callback edited(string);
+
+    height: 32px;
+    background: Tokens.surface;
+    border-radius: Tokens.corner-radius;
+    border-width: Tokens.border-width;
+    border-color: input.has-focus ? Tokens.accent : Tokens.border-on-surface;
+
+    HorizontalLayout {
+        padding-left: Tokens.spacing-medium;
+        padding-right: Tokens.spacing-medium;
+        spacing: Tokens.spacing-small;
+
+        Icon {
+            width: 14px;
+            height: 14px;
+            source: TablerIcons.search;
+            color: Tokens.text-secondary;
+        }
+
+        input := TextInput {
+            horizontal-stretch: 1;
+            text <=> root.text;
+            color: Tokens.text-primary;
+            font-size: Tokens.font-size-small;
+            vertical-alignment: center;
+            single-line: true;
+            edited => { root.edited(self.text); }
+        }
+    }
+
+    if root.text == "" && !input.has-focus: Text {
+        x: Tokens.spacing-medium + 14px + Tokens.spacing-small;
+        y: 0px;
+        height: 100%;
+        text: root.placeholder;
+        color: Tokens.text-disabled-on-surface;
+        font-size: Tokens.font-size-small;
+        vertical-alignment: center;
+    }
+}
+
 /// Modal settings overlay.
 component SettingsLayer inherits Rectangle {
     background: #000000a0;
@@ -849,36 +974,143 @@ component SettingsLayer inherits Rectangle {
                             }
                         }
 
-                        // Section 3: Appearance
+                        // Section 3: Appearance & Theme
                         VerticalLayout {
                             spacing: Tokens.spacing-small;
 
                             Text {
-                                text: "APPEARANCE";
+                                text: "APPEARANCE & THEME";
                                 color: Tokens.accent;
                                 font-size: Tokens.font-size-small;
                                 font-weight: 600;
+                            }
+
+                            Text {
+                                text: "Palette Preset";
+                                color: Tokens.text-secondary-on-raised;
+                                font-size: Tokens.font-size-small;
                             }
 
                             HorizontalLayout {
                                 spacing: Tokens.spacing-small;
                                 SettingsButton {
                                     horizontal-stretch: 1;
-                                    text: "System Default";
-                                    active: BrowserLogic.settings-theme == 0;
-                                    clicked => { BrowserLogic.settings-theme = 0; }
+                                    text: "System";
+                                    active: BrowserLogic.settings-theme-preset == "system";
+                                    clicked => { BrowserLogic.settings-theme-preset = "system"; }
                                 }
                                 SettingsButton {
                                     horizontal-stretch: 1;
-                                    text: "Light";
-                                    active: BrowserLogic.settings-theme == 1;
-                                    clicked => { BrowserLogic.settings-theme = 1; }
+                                    text: "Origiri Dark";
+                                    active: BrowserLogic.settings-theme-preset == "dark";
+                                    clicked => { BrowserLogic.settings-theme-preset = "dark"; }
                                 }
                                 SettingsButton {
                                     horizontal-stretch: 1;
-                                    text: "Dark";
-                                    active: BrowserLogic.settings-theme == 2;
-                                    clicked => { BrowserLogic.settings-theme = 2; }
+                                    text: "Origiri Light";
+                                    active: BrowserLogic.settings-theme-preset == "light";
+                                    clicked => { BrowserLogic.settings-theme-preset = "light"; }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Tokyo Night";
+                                    active: BrowserLogic.settings-theme-preset == "tokyonight-night";
+                                    clicked => { BrowserLogic.settings-theme-preset = "tokyonight-night"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Catppuccin";
+                                    active: BrowserLogic.settings-theme-preset == "catppuccin-mocha";
+                                    clicked => { BrowserLogic.settings-theme-preset = "catppuccin-mocha"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Flexoki";
+                                    active: BrowserLogic.settings-theme-preset == "flexoki-dark";
+                                    clicked => { BrowserLogic.settings-theme-preset = "flexoki-dark"; }
+                                }
+                            }
+
+                            Text {
+                                text: "Accent Color";
+                                color: Tokens.text-secondary-on-raised;
+                                font-size: Tokens.font-size-small;
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsColorButton {
+                                    horizontal-stretch: 1;
+                                    text: "Default";
+                                    swatch-color: #d12a55;
+                                    active: BrowserLogic.settings-accent-color == "default" || BrowserLogic.settings-accent-color == "";
+                                    clicked => { BrowserLogic.settings-accent-color = "default"; }
+                                }
+                                SettingsColorButton {
+                                    horizontal-stretch: 1;
+                                    text: "Blue";
+                                    swatch-color: #3b82f6;
+                                    active: BrowserLogic.settings-accent-color == "#3b82f6";
+                                    clicked => { BrowserLogic.settings-accent-color = "#3b82f6"; }
+                                }
+                                SettingsColorButton {
+                                    horizontal-stretch: 1;
+                                    text: "Emerald";
+                                    swatch-color: #10b981;
+                                    active: BrowserLogic.settings-accent-color == "#10b981";
+                                    clicked => { BrowserLogic.settings-accent-color = "#10b981"; }
+                                }
+                                SettingsColorButton {
+                                    horizontal-stretch: 1;
+                                    text: "Purple";
+                                    swatch-color: #8b5cf6;
+                                    active: BrowserLogic.settings-accent-color == "#8b5cf6";
+                                    clicked => { BrowserLogic.settings-accent-color = "#8b5cf6"; }
+                                }
+                                SettingsColorButton {
+                                    horizontal-stretch: 1;
+                                    text: "Orange";
+                                    swatch-color: #f97316;
+                                    active: BrowserLogic.settings-accent-color == "#f97316";
+                                    clicked => { BrowserLogic.settings-accent-color = "#f97316"; }
+                                }
+                            }
+
+                            Text {
+                                text: "Corner Radius";
+                                color: Tokens.text-secondary-on-raised;
+                                font-size: Tokens.font-size-small;
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "None (0px)";
+                                    active: BrowserLogic.settings-corner-radius == "disabled";
+                                    clicked => { BrowserLogic.settings-corner-radius = "disabled"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Small (4px)";
+                                    active: BrowserLogic.settings-corner-radius == "small" || BrowserLogic.settings-corner-radius == "";
+                                    clicked => { BrowserLogic.settings-corner-radius = "small"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Medium (8px)";
+                                    active: BrowserLogic.settings-corner-radius == "medium";
+                                    clicked => { BrowserLogic.settings-corner-radius = "medium"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Large (14px)";
+                                    active: BrowserLogic.settings-corner-radius == "large";
+                                    clicked => { BrowserLogic.settings-corner-radius = "large"; }
                                 }
                             }
                         }
@@ -952,8 +1184,342 @@ component SettingsLayer inherits Rectangle {
                                 BrowserLogic.settings-search-url,
                                 BrowserLogic.settings-restore-session,
                                 BrowserLogic.settings-theme,
+                                BrowserLogic.settings-theme-preset,
+                                BrowserLogic.settings-accent-color,
+                                BrowserLogic.settings-corner-radius,
                             );
                             BrowserLogic.close-settings();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Modal bookmarks overlay.
+component BookmarksLayer inherits Rectangle {
+    background: #000000a0;
+
+    TouchArea {
+        clicked => { BrowserLogic.close-bookmarks(); }
+    }
+
+    FocusScope {
+        width: 100%;
+        height: 100%;
+
+        Rectangle {
+            width: 560px;
+            height: 520px;
+            background: Tokens.surface-raised;
+            border-radius: Tokens.corner-radius + 4px;
+            border-width: Tokens.border-width;
+            border-color: Tokens.border-on-raised;
+            clip: true;
+
+            TouchArea {
+                // Prevent clicking inside dialog from closing overlay
+            }
+
+            VerticalLayout {
+                padding: Tokens.spacing-large;
+                spacing: Tokens.spacing-medium;
+
+                // Header
+                HorizontalLayout {
+                    spacing: Tokens.spacing-small;
+
+                    Icon {
+                        width: 20px;
+                        height: 20px;
+                        source: TablerIcons.bookmark;
+                        color: Tokens.accent;
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Bookmarks";
+                        color: Tokens.text-primary;
+                        font-size: Tokens.font-size-large;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+
+                    IconButton {
+                        width: 24px;
+                        height: 24px;
+                        icon: TablerIcons.x;
+                        clicked => { BrowserLogic.close-bookmarks(); }
+                    }
+                }
+
+                SearchField {
+                    text <=> BrowserLogic.bookmarks-filter;
+                    placeholder: "Search bookmarks...";
+                    edited(query) => { BrowserLogic.filter-bookmarks(query); }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Tokens.divider-on-raised;
+                }
+
+                // Bookmarks list
+                ScrollView {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        spacing: 2px;
+
+                        for item in BrowserLogic.bookmarks-list: Rectangle {
+                            height: 48px;
+                            border-radius: Tokens.corner-radius;
+                            background: row-touch.has-hover ? Tokens.hover-on-raised : transparent;
+
+                            row-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { BrowserLogic.open-bookmark(item.url); }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: Tokens.spacing-medium;
+                                padding-right: Tokens.spacing-medium;
+                                spacing: Tokens.spacing-medium;
+
+                                Icon {
+                                    width: 16px;
+                                    height: 16px;
+                                    source: TablerIcons.star;
+                                    color: Tokens.accent;
+                                }
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 2px;
+
+                                    Text {
+                                        text: item.title != "" ? item.title : item.url;
+                                        color: Tokens.text-primary;
+                                        font-size: Tokens.font-size-small;
+                                        font-weight: 500;
+                                        overflow: elide;
+                                    }
+
+                                    Text {
+                                        text: item.url;
+                                        color: Tokens.text-secondary-on-raised;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
+
+                                if row-touch.has-hover: HorizontalLayout {
+                                    spacing: Tokens.spacing-small;
+                                    alignment: center;
+
+                                    IconButton {
+                                        width: 28px;
+                                        height: 28px;
+                                        icon: TablerIcons.external-link;
+                                        clicked => { BrowserLogic.open-bookmark-new-tab(item.url); }
+                                    }
+
+                                    IconButton {
+                                        width: 28px;
+                                        height: 28px;
+                                        icon: TablerIcons.trash;
+                                        clicked => { BrowserLogic.remove-bookmark(item.url); }
+                                    }
+                                }
+                            }
+                        }
+
+                        if BrowserLogic.bookmarks-list.length == 0: VerticalLayout {
+                            alignment: center;
+                            height: 160px;
+                            Text {
+                                text: "No bookmarks yet.";
+                                color: Tokens.text-disabled-on-raised;
+                                font-size: Tokens.font-size-normal;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Modal history overlay.
+component HistoryLayer inherits Rectangle {
+    background: #000000a0;
+
+    TouchArea {
+        clicked => { BrowserLogic.close-history(); }
+    }
+
+    FocusScope {
+        width: 100%;
+        height: 100%;
+
+        Rectangle {
+            width: 600px;
+            height: 540px;
+            background: Tokens.surface-raised;
+            border-radius: Tokens.corner-radius + 4px;
+            border-width: Tokens.border-width;
+            border-color: Tokens.border-on-raised;
+            clip: true;
+
+            TouchArea {
+                // Prevent clicking inside dialog from closing overlay
+            }
+
+            VerticalLayout {
+                padding: Tokens.spacing-large;
+                spacing: Tokens.spacing-medium;
+
+                // Header
+                HorizontalLayout {
+                    spacing: Tokens.spacing-small;
+
+                    Icon {
+                        width: 20px;
+                        height: 20px;
+                        source: TablerIcons.history;
+                        color: Tokens.accent;
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Browsing History";
+                        color: Tokens.text-primary;
+                        font-size: Tokens.font-size-large;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+
+                    IconButton {
+                        width: 24px;
+                        height: 24px;
+                        icon: TablerIcons.x;
+                        clicked => { BrowserLogic.close-history(); }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Tokens.spacing-medium;
+
+                    SearchField {
+                        horizontal-stretch: 1;
+                        text <=> BrowserLogic.history-filter;
+                        placeholder: "Search history...";
+                        edited(query) => { BrowserLogic.filter-history(query); }
+                    }
+
+                    SettingsButton {
+                        width: 120px;
+                        text: "Clear All";
+                        destructive: true;
+                        clicked => { BrowserLogic.clear-all-history(); }
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Tokens.divider-on-raised;
+                }
+
+                // History list
+                ScrollView {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        spacing: 2px;
+
+                        for item in BrowserLogic.history-list: Rectangle {
+                            height: 50px;
+                            border-radius: Tokens.corner-radius;
+                            background: row-touch.has-hover ? Tokens.hover-on-raised : transparent;
+
+                            row-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { BrowserLogic.open-history-item(item.url); }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: Tokens.spacing-medium;
+                                padding-right: Tokens.spacing-medium;
+                                spacing: Tokens.spacing-medium;
+
+                                Icon {
+                                    width: 16px;
+                                    height: 16px;
+                                    source: TablerIcons.clock;
+                                    color: Tokens.text-secondary-on-raised;
+                                }
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 2px;
+
+                                    Text {
+                                        text: item.title != "" ? item.title : item.url;
+                                        color: Tokens.text-primary;
+                                        font-size: Tokens.font-size-small;
+                                        font-weight: 500;
+                                        overflow: elide;
+                                    }
+
+                                    Text {
+                                        text: item.url;
+                                        color: Tokens.text-secondary-on-raised;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
+
+                                Text {
+                                    text: item.date-label;
+                                    color: Tokens.text-disabled-on-raised;
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                }
+
+                                if row-touch.has-hover: HorizontalLayout {
+                                    spacing: Tokens.spacing-small;
+                                    alignment: center;
+
+                                    IconButton {
+                                        width: 28px;
+                                        height: 28px;
+                                        icon: TablerIcons.external-link;
+                                        clicked => { BrowserLogic.open-history-new-tab(item.url); }
+                                    }
+
+                                    IconButton {
+                                        width: 28px;
+                                        height: 28px;
+                                        icon: TablerIcons.trash;
+                                        clicked => { BrowserLogic.remove-history-item(item.url); }
+                                    }
+                                }
+                            }
+                        }
+
+                        if BrowserLogic.history-list.length == 0: VerticalLayout {
+                            alignment: center;
+                            height: 160px;
+                            Text {
+                                text: "No history found.";
+                                color: Tokens.text-disabled-on-raised;
+                                font-size: Tokens.font-size-normal;
+                                horizontal-alignment: center;
+                            }
                         }
                     }
                 }
@@ -1123,6 +1689,34 @@ export component AppWindow inherits Window {
                     IconButton {
                         width: 30px;
                         height: 30px;
+                        icon: TablerIcons.bookmark;
+                        active: BrowserLogic.bookmarks-open;
+                        clicked => {
+                            if BrowserLogic.bookmarks-open {
+                                BrowserLogic.close-bookmarks();
+                            } else {
+                                BrowserLogic.open-bookmarks();
+                            }
+                        }
+                    }
+
+                    IconButton {
+                        width: 30px;
+                        height: 30px;
+                        icon: TablerIcons.history;
+                        active: BrowserLogic.history-open;
+                        clicked => {
+                            if BrowserLogic.history-open {
+                                BrowserLogic.close-history();
+                            } else {
+                                BrowserLogic.open-history();
+                            }
+                        }
+                    }
+
+                    IconButton {
+                        width: 30px;
+                        height: 30px;
                         icon: TablerIcons.settings;
                         active: BrowserLogic.settings-open;
                         clicked => {
@@ -1237,6 +1831,22 @@ export component AppWindow inherits Window {
         width: 100%;
         height: 100%;
         visible: BrowserLogic.settings-open;
+    }
+
+    bookmarks-layer := BookmarksLayer {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        visible: BrowserLogic.bookmarks-open;
+    }
+
+    history-layer := HistoryLayer {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        visible: BrowserLogic.history-open;
     }
 
     changed address-has-focus => { BrowserLogic.address-focused = address.has-focus; }

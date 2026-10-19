@@ -19,9 +19,9 @@ Bookmarks (`nitium-core::bookmarks`) and history (`nitium-core::history`) are on
 address bar suggestions and the star button. There is no way to browse, search, edit or delete them.
 
 ## Steps
-- [ ] Bookmarks panel (toolbar button / Ctrl+Shift+O): list, search, open (click / middle-click for new tab), remove
-- [ ] History panel (Ctrl+H): grouped by day, search, open, remove entry, clear all
+- [x] Bookmarks panel (toolbar button / Ctrl+Shift+O): list, search, open (click / middle-click for new tab), remove
+- [x] History panel (Ctrl+H): grouped by date, search, open, remove entry, clear all
 - [ ] Optional bookmarks bar under the toolbar
-- [ ] Rename / edit title; folders are out of scope until needed
-- [ ] `nitium-core`: add `Bookmarks::rename`, `History::remove`, `History::recent(limit)` with tests as needed
-- [ ] Reuse `MenuLayer`/`DialogLayer` patterns in `apps/nitium/ui/app.slint`
+- [x] Rename / edit title; folders are out of scope until needed
+- [x] `nitium-core`: add `Bookmarks::rename`, `History::remove`, `History::recent(limit)` with tests as needed
+- [x] Reuse `MenuLayer`/`DialogLayer` patterns in `apps/nitium/ui/app.slint`
