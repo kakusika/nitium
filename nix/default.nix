@@ -20,7 +20,10 @@ flake-parts.lib.mkFlake { inherit inputs; } {
     {
       _module.args.pkgs = import inputs.nixpkgs {
         inherit system;
-        config.allowUnfree = true;
+        config = {
+          allowUnfree = true;
+          android_sdk.accept_license = true;
+        };
       };
 
       packages = rec {

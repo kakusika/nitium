@@ -19,7 +19,19 @@ let
       "rustfmt"
       "rust-analyzer"
     ])
+    fenix.targets.aarch64-linux-android.stable.rust-std
+    fenix.targets.x86_64-linux-android.stable.rust-std
   ];
+  androidSdk = pkgs.androidenv.composeAndroidPackages {
+    platformVersions = [ "34" ];
+    buildToolsVersions = [ "34.0.0" ];
+    includeNDK = true;
+    abiVersions = [ "x86_64" ];
+    includeEmulator = true;
+    includeSystemImages = true;
+    systemImageTypes = [ "google_apis" ];
+  };
+  androidHome = "${androidSdk.androidsdk}/libexec/android-sdk";
 in
 mkShell {
   hardeningDisable = [ "fortify" ];
@@ -46,6 +58,12 @@ mkShell {
     cargo-nextest
     wasm-bindgen-cli
 
+    #== Android
+    androidSdk.androidsdk
+    jdk17
+    gradle
+    cargo-ndk
+
     #= Runtime
     wayland
     libxkbcommon
@@ -59,6 +77,10 @@ mkShell {
     vulkan-validation-layers
     vulkan-tools
   ];
+
+  ANDROID_HOME = androidHome;
+  ANDROID_NDK_ROOT = "${androidHome}/ndk-bundle";
+  JAVA_HOME = pkgs.jdk17.home;
 
   LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
   BINDGEN_EXTRA_CLANG_ARGS =
@@ -87,6 +109,11 @@ mkShell {
     + ":/run/opengl-driver/lib";
 
   shellHook = ''
+    export CARGO_APK_RELEASE_KEYSTORE="$HOME/.android/debug.keystore"
+    export CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android
+    export ANDROID_AVD_HOME="$HOME/.android/avd"
+    export ANDROID_BUILD_TOOLS_VERSION="34.0.0"
+
     echo "🧪 Rust Nitium"
   '';
 }

@@ -6,6 +6,13 @@
 
 #= Project-specific
 
+# Android (apps/android/android/): `build/` below already covers Gradle's own
+# output dirs.
+apps/android/android/.gradle/
+apps/android/android/local.properties
+apps/android/android/app/src/main/jniLibs/
+
+
 
 # -----------------------------------------------------------------------
 # Shared ignore rules

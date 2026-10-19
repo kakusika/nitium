@@ -1,0 +1,27 @@
+[package]
+name = "nitium-android"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nitium-shell = { workspace = true }
+nitium-webview = { workspace = true }
+
+[features]
+default = ["renderer-femtovg"]
+renderer-femtovg = ["i-slint-backend-android-activity/renderer-femtovg"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+slint = { version = "1.18", default-features = false, features = [
+  "backend-android-activity-06",
+  "compat-1-2",
+  "unstable-fontique-011",
+] }
+i-slint-backend-android-activity = { version = "=1.18.1", default-features = false }
+

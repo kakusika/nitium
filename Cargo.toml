@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "apps/android",
   "apps/desktop",
   "crates/nitium-core",
   "crates/nitium-settings",
@@ -87,4 +88,6 @@ opt-level = 3
 # Relaxing `icu_properties` to `"2.1"` allows Cargo to unify `icu_*` on 2.1.x
 # across Slint and Servo cleanly.
 i-slint-compiler = { path = "patches/i-slint-compiler" }
+i-slint-backend-android-activity = { path = "patches/i-slint-backend-android-activity" }
+
 

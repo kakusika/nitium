@@ -1,0 +1,50 @@
+@meta{
+  id: doc-dev-idea,
+  lang: en
+}
+
+=[ Nitium Architecture & Engine Strategy ]
+
+==[ Multi-Platform Roadmap ]
+
+Nitium's platform roadmap follows a phased expansion:
+-| Linux (Primary desktop tier with Servo and Slint)
+-| Android (Mobile tier)
+-| Windows & macOS (Desktop tier)
+-| iOS (Mobile tier)
+
+==[ JavaScript Engine & Web Engine Analysis ]
+
+===[ Landscape of JavaScript Engines ]
+
+-| JavaScriptCore (Apple / WebKit):
+ | Optimized for rapid startup, low baseline memory usage, and battery efficiency.
+ | Bun chose JSC over V8 specifically for these low-latency, low-memory properties and its clean, stable C API (`JSBase.h`).
+-| V8 (Google / Chromium / Node.js / Deno):
+ | Heavily optimized for long-running high-throughput server and browser workloads with multi-tiered JIT compilers, but incurs significant baseline memory footprint and longer warm-up times.
+-| SpiderMonkey / MozJS (Mozilla / Servo / Firefox):
+ | The engine embedded in Servo. While robust and standard-compliant, MozJS introduces substantial compile-time overhead (complex build scripts, multi-gigabyte build artifacts) and high memory usage. Furthermore, Servo's DOM bindings are deeply intertwined with SpiderMonkey's garbage collector and internal object models, precluding lightweight engine substitution within Servo itself.
+
+===[ Platform Constraints & The Mobile JIT Boundary ]
+
+-| iOS App Store Restrictions:
+ | Apple strictly prohibits third-party executable code generation (JIT compilers) in App Store applications. Any standalone JS engine running on iOS must either disable JIT (resulting in prohibitive performance degradation) or delegate execution to the operating system's WebKit runtime (`WKWebView` / `JavaScriptCore`).
+-| Mobile Security & Footprint:
+ | Packaging a full standalone browser engine (Servo + MozJS + WebRender) on Android produces an APK of ~100MB even with stripping and optimization. In contrast, OS-native web wrappers measure only 5-15MB. Moreover, mobile OS vendors continuously deliver zero-day vulnerability patches for the system web engines.
+
+==[ Recommended Hybrid Architecture ]
+
+To reconcile user experience, performance, binary footprint, and cross-platform feasibility:
+
+===[ 1. Desktop Tier (Linux, Windows, macOS) ]
+-| Engine: Servo 0.7+ (MozJS, WebRender, Surfman / WGPU)
+-| UI: Slint (Wayland/X11, Windows, macOS)
+-| Goal: Pure hacker-friendly, unconstrained standalone browser experience free from OS webview idiosyncrasies.
+
+===[ 2. Mobile Tier (Android, iOS) ]
+-| Engine: OS-Native WebViews (`Android System WebView` via Android Activity / JNI, `WKWebView` on iOS)
+-| UI: Slint (FemtoVG / Skia mobile backends)
+-| Goal: Native OS integration, instant startup, sub-20MB application size, compliance with App Store policies, and full access to platform-managed security patches.
+
+===[ 3. Decoupled Abstraction in `nitium-shell` ]
+The `WebEngine` trait in @dir(crates/nitium-shell) provides the architectural boundary separating UI state from the underlying web engine. Desktop targets instantiate `ServoBrowser`, while mobile targets instantiate a platform-native `AndroidWebView` or `IosWebView` adapter implementing the same event and lifecycle contracts.

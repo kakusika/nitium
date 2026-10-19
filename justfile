@@ -24,6 +24,35 @@ check:
 test:
     cargo test --workspace
 
+#[ Android ]
+
+dist := "dist"
+jniLibs := "android/app/src/main/jniLibs"
+apk_raw := "apps/android/android/app/build/outputs/apk/release/app-release.apk"
+apk := dist + "/nitium.apk"
+apk_arm := dist + "/nitium-arm64.apk"
+apk_x86 := dist + "/nitium-x86_64.apk"
+
+android_rustflags := "-C force-unwind-tables=no -C link-arg=-Wl,--icf=all -C link-arg=-Wl,--gc-sections -C link-arg=-Wl,--strip-all"
+
+# Build Android APK for ARM64 (real devices)
+apk-arm: (_build-apk "-t arm64-v8a" apk_arm)
+
+# Build Android APK for x86_64 (emulator)
+apk-x86: (_build-apk "-t x86_64" apk_x86)
+
+# Internal recipe: cross-compile native lib and assemble APK via Gradle
+_build-apk abis out:
+    cd apps/android && rm -rf {{jniLibs}}
+    cd apps/android && RUSTFLAGS="{{android_rustflags}}" HOST_CC=gcc HOST_CXX=g++ CC_x86_64_unknown_linux_gnu=gcc CXX_x86_64_unknown_linux_gnu=g++ cargo ndk {{abis}} -P 34 -o {{jniLibs}} build --release --lib -p nitium-android
+    cd apps/android/android && gradle assembleRelease
+
+
+    @mkdir -p {{dist}}
+    cp {{apk_raw}} {{out}}
+    cp {{apk_raw}} {{apk}}
+    @echo "Built: {{out}} (and {{apk}})"
+
 #[ Documentation ]
 
 # Generate and update all derived documentation across the workspace.
