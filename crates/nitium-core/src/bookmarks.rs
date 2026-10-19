@@ -64,6 +64,11 @@ impl Bookmarks {
         self.items.len() != before
     }
 
+    /// Removes every bookmark.
+    pub fn clear(&mut self) {
+        self.items.clear();
+    }
+
     /// Bookmarks matching every whitespace-separated term of `query` in the URL or
     /// the title (case-insensitive), in the order they were added.
     pub fn search(&self, query: &str, limit: usize) -> Vec<&Bookmark> {
@@ -109,6 +114,16 @@ mod tests {
         assert_eq!(bookmarks.items().len(), 1);
         assert!(bookmarks.remove("https://example.com/a"));
         assert!(!bookmarks.remove("https://example.com/a"));
+        assert!(bookmarks.items().is_empty());
+    }
+
+    #[test]
+    fn clear_removes_all() {
+        let mut bookmarks = Bookmarks::default();
+        bookmarks.add("https://a.test", "A", 1);
+        bookmarks.add("https://b.test", "B", 2);
+        assert_eq!(bookmarks.items().len(), 2);
+        bookmarks.clear();
         assert!(bookmarks.items().is_empty());
     }
 

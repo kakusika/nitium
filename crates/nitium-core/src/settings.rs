@@ -2,62 +2,22 @@
 
 use std::io;
 
-use serde::{Deserialize, Serialize};
+pub use nitium_settings::*;
 
 use crate::profile::Profile;
-use crate::storage;
 
-/// Known search engines as `(name, URL template)`; `%s` is the query.
-pub const SEARCH_PRESETS: &[(&str, &str)] = &[
-    ("Google", "https://www.google.com/search?q=%s"),
-    ("DuckDuckGo", "https://duckduckgo.com/?q=%s"),
-    ("Bing", "https://www.bing.com/search?q=%s"),
-    ("Brave", "https://search.brave.com/search?q=%s"),
-];
-
-const DEFAULT_HOME_URL: &str = "https://servo.org";
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Settings {
-    /// Page opened at startup when there is nothing to restore.
-    pub home_url: String,
-    /// Search URL template containing `%s`.
-    pub search_url: String,
-    /// Reopen the tabs of the previous session at startup.
-    pub restore_session: bool,
+pub trait SettingsExt {
+    fn load(profile: &Profile) -> Self;
+    fn save(&self, profile: &Profile) -> io::Result<()>;
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            home_url: DEFAULT_HOME_URL.to_string(),
-            search_url: SEARCH_PRESETS[0].1.to_string(),
-            restore_session: true,
-        }
-    }
-}
-
-impl Settings {
-    /// Loads settings, repairing values that cannot work (a search URL without `%s`
-    /// would send every query to the same page).
-    pub fn load(profile: &Profile) -> Self {
-        storage::load_or_default::<Settings>(&profile.settings_path()).sanitized()
+impl SettingsExt for Settings {
+    fn load(profile: &Profile) -> Self {
+        Self::load_from_path(&profile.settings_path())
     }
 
-    pub fn save(&self, profile: &Profile) -> io::Result<()> {
-        storage::save(&profile.settings_path(), self)
-    }
-
-    pub fn sanitized(mut self) -> Self {
-        let defaults = Settings::default();
-        if !self.search_url.contains("%s") {
-            self.search_url = defaults.search_url;
-        }
-        if self.home_url.trim().is_empty() {
-            self.home_url = defaults.home_url;
-        }
-        self
+    fn save(&self, profile: &Profile) -> io::Result<()> {
+        self.save_to_path(&profile.settings_path())
     }
 }
 
@@ -71,7 +31,7 @@ mod tests {
         let settings = Settings::default();
         assert!(settings.search_url.contains("%s"));
         assert!(settings.restore_session);
-        assert!(SEARCH_PRESETS.iter().all(|(_, url)| url.contains("%s")));
+        assert!(SEARCH_PRESETS.iter().all(|preset| preset.url_template.contains("%s")));
     }
 
     #[test]
@@ -87,6 +47,7 @@ mod tests {
             home_url: "https://example.com".into(),
             search_url: "https://duckduckgo.com/?q=%s".into(),
             restore_session: false,
+            theme: ThemeMode::System,
         };
         settings.save(&profile).expect("save");
         assert_eq!(Settings::load(&profile), settings);
@@ -108,6 +69,7 @@ mod tests {
             home_url: "  ".into(),
             search_url: "https://no-placeholder.test/".into(),
             restore_session: true,
+            theme: ThemeMode::System,
         }
         .sanitized();
         assert_eq!(settings, Settings::default());

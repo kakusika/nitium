@@ -305,6 +305,16 @@ impl ServoBrowser {
         })
         .expect("Failed to spawn servo event loop task");
     }
+
+    /// Clears cookies, local/session storage, and network cache.
+    pub fn clear_browsing_data(&self) {
+        let servo = self.adapter.servo();
+        servo.site_data_manager().clear_cookies(None);
+        servo
+            .site_data_manager()
+            .clear_site_data(&[], servo::StorageType::all());
+        servo.network_manager().clear_cache();
+    }
 }
 
 impl nitium_shell::WebEngine for ServoBrowser {
@@ -374,5 +384,9 @@ impl nitium_shell::WebEngine for ServoBrowser {
 
     fn evaluate_script(&self, script: &str, on_result: Box<dyn FnOnce(Option<String>)>) {
         Self::evaluate_script(self, script, on_result)
+    }
+
+    fn clear_browsing_data(&self) {
+        Self::clear_browsing_data(self);
     }
 }

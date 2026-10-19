@@ -5189,6 +5189,7 @@ name = "nitium-core"
 version = "0.1.0"
 dependencies = [
  "directories",
+ "nitium-settings",
  "serde",
  "serde_json",
 ]
@@ -5202,11 +5203,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nitium-settings"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "nitium-shell"
 version = "0.1.0"
 dependencies = [
  "log",
  "nitium-core",
+ "nitium-settings",
  "origiri",
  "origiri-build",
  "origiri-theme",

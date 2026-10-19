@@ -75,6 +75,8 @@ pub trait WebEngine {
     fn set_zoom(&self, zoom: f32);
     fn zoom(&self) -> f32;
     fn evaluate_script(&self, script: &str, on_result: Box<dyn FnOnce(Option<String>)>);
+    /// Clears cookies, web storage, and network cache.
+    fn clear_browsing_data(&self) {}
 }
 
 /// Factory invoked on `RenderingSetup` once the WGPU device and queue are ready.

@@ -9,6 +9,7 @@ build = "build.rs"
 
 [dependencies]
 nitium-core = { workspace = true }
+nitium-settings = { workspace = true }
 origiri = { workspace = true }
 origiri-theme = { workspace = true }
 slint = { workspace = true }

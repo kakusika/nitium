@@ -40,6 +40,8 @@ pub enum Shortcut {
     /// Zero-based index of the tab to select (Ctrl+1 .. Ctrl+8).
     SelectTab(usize),
     SelectLastTab,
+    /// Open settings overlay (Ctrl+,).
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -133,6 +135,7 @@ pub fn resolve(text: &str, mods: Modifiers) -> Option<Shortcut> {
         ('r', false) => Some(Shortcut::Reload),
         ('9', false) => Some(Shortcut::SelectLastTab),
         (digit @ '1'..='8', false) => Some(Shortcut::SelectTab(digit as usize - '1' as usize)),
+        (',', false) => Some(Shortcut::Settings),
         _ => None,
     }
 }
@@ -185,6 +188,11 @@ mod tests {
         fn address_and_reload() {
             assert_eq!(resolve("l", CTRL), Some(Shortcut::FocusAddress));
             assert_eq!(resolve("r", CTRL), Some(Shortcut::Reload));
+        }
+
+        #[test]
+        fn settings() {
+            assert_eq!(resolve(",", CTRL), Some(Shortcut::Settings));
         }
 
         #[test]

@@ -15,12 +15,12 @@ passes (user, 2026-10-16).
 
 # Load errors and certificate warnings
 
-Servo 0.5's `WebViewDelegate` has no callback for failed loads or TLS errors, and `LoadStatus` has no failure
-state. What the user sees today is whatever Servo renders by itself (unverified).
+In Servo 0.5 and 0.7, `WebViewDelegate` has no callback for failed loads or TLS errors, and `LoadStatus`
+has only `Started`, `HeadParsed`, `Complete`. When a network error occurs, Servo internally renders
+`servo-default-resources::resources/neterror.html` (`<title>Error loading page</title>`).
+Servo 0.7 adds `opts.ignore_certificate_errors` and `opts.certificate_path` on `ServoBuilder`.
 
 ## Steps
-- [ ] User: open `https://expired.badssl.com/`, `https://self-signed.badssl.com/` and an unreachable host; record what Servo shows
-- [ ] Grep Servo 0.5 for `net_error`, `neterror`, `about:` error pages and `ServoDelegate::notify_error`
-- [ ] If no hook exists: consider a content-based approach (detect Servo's error document title via `Title` events)
-      and a friendly page; otherwise leave it and note the upstream gap
-- [ ] If a hook exists: show an interstitial with "Go back" and (for certificates) an explicit, per-host override
+- [x] Grep Servo for `net_error`, `neterror`, `about:` error pages and `ServoDelegate::notify_error` (verified 2026-10-19: Servo uses built-in `neterror.html`)
+- [ ] Content-based error detection: detect Servo's error document title (`Error loading page`) via page title events if needed
+- [ ] Expose certificate options (`ignore_certificate_errors`) in settings if desired

@@ -19,11 +19,10 @@ Today `settings.json` (in the profile dir) is edited by hand. Fields: `home_url`
 `%s`), `restore_session`. Logic lives in `nitium-core::settings` (tested); `SEARCH_PRESETS` lists known engines.
 
 ## Steps
-- [ ] Decide where it lives: an in-app page/overlay (preferred, consistent with `DialogLayer`/`MenuLayer`) vs a separate window
-- [ ] Open from the UI (menu button in the toolbar) and a shortcut (Ctrl+, )
-- [ ] Fields: search engine (presets + custom template, validated to contain `%s`), home page, restore session
-- [ ] Apply immediately: `BrowserApp.settings` is currently immutable (`settings: Settings`); make it
-      `RefCell<Settings>` and save through `Settings::save`
-- [ ] "Clear history" (`History::clear` exists) and "Clear bookmarks" with confirmation
-- [ ] Theme override (light/dark/system): `ServoBrowser::set_theme` exists; the window uses Origiri `Tokens`
-- [ ] Tests in `nitium-core` for any new validation
+- [x] Decide where it lives: an in-app page/overlay (`SettingsLayer`, consistent with `DialogLayer`/`MenuLayer`)
+- [x] Open from the UI (settings button in the toolbar) and shortcut (`Ctrl+,`)
+- [x] Fields: search engine (presets + custom template, validated to contain `%s`), home page, restore session
+- [x] Apply immediately: `BrowserApp.settings` is `RefCell<Settings>` and saves through `SettingsExt::save`
+- [x] "Clear history", "Clear bookmarks", and "Clear cookies & cache" (via Servo 0.7 `SiteDataManager` & `NetworkManager`)
+- [x] Theme override (light/dark/system): wired to `WebEngine::set_theme` and Slint UI
+- [x] Extracted dedicated `crates/nitium-settings` crate with full unit test coverage

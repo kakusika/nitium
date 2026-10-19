@@ -15,11 +15,13 @@ passes (user, 2026-10-16).
 
 # Downloads (blocked upstream)
 
-Servo 0.5 has no download API: no delegate callback for responses that should be saved, and `WebResourceLoad`
-cannot hand a body to the embedder as a file. Links to files currently render (or fail) as pages.
+Servo 0.5 and 0.7 have no embedder download API: no delegate callback for responses that should be saved,
+and `WebResourceLoad` cannot inspect response headers or hand a response body to the embedder as a file.
+Links to files currently render (or fail) as pages.
 
 ## Steps
-- [ ] On each Servo upgrade, re-check `webview_delegate.rs` / `servo_delegate.rs` for a download hook
-- [ ] Possible workaround to evaluate: intercept via `WebViewDelegate::load_web_resource` (`WebResourceLoad::intercept`)
+- [x] Check Servo 0.7 `webview_delegate.rs` / `servo_delegate.rs` for a download hook (checked 2026-10-19: still absent upstream)
+- [ ] Evaluate context menu "Save link as..." / URL extension matching download helper
+- [ ] Possible workaround: intercept via `WebViewDelegate::load_web_resource` (`WebResourceLoad::intercept`)
       and fetch the URL ourselves for `Content-Disposition: attachment` / non-renderable types (needs an HTTP client dependency)
 - [ ] UI: download progress list, destination setting (needs `settings-ui.md`), "open folder"

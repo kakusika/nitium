@@ -42,7 +42,8 @@ Nitium is a lightweight, stateful desktop web browser built with Servo, Slint, a
 Workspace crates:
 
 - `apps/desktop`: Desktop application binary wiring `nitium-shell` and `nitium-webview`
-- `crates/nitium-core`: Pure Rust browser logic with zero Servo or Slint dependencies (address input, tabs, shortcuts, controls, settings, bookmarks, history, session, find, zoom, IME)
+- `crates/nitium-core`: Pure Rust browser logic with zero Servo or Slint dependencies (address input, tabs, shortcuts, controls, bookmarks, history, session, find, zoom, IME)
+- `crates/nitium-settings`: User settings, search presets, validation, and storage
 - `crates/nitium-shell`: Slint UI shell and `BrowserApp` state management (zero Servo dependency)
 - `crates/nitium-webview`: Servo 0.7 browser engine integration and WGPU/Surfman rendering bridge
 

@@ -36,7 +36,7 @@ All commits must follow the Conventional Commits format: `type(scope): descripti
 ===[ Scopes ]
 Use the affected app, crate, or feature as the scope:
 -| **Apps**: `desktop`, `mobile`
--| **Crates**: `core`, `shell`, `webview`
+-| **Crates**: `core`, `settings`, `shell`, `webview`
 -| **Features**: `tabs`, `bookmarks`, `history`, `session`, `settings`, `shortcuts`, `controls`, `find`, `zoom`, `ime`, `ui`
 -| **Tooling / Infra**: `nix`, `deps`, `docs`
 

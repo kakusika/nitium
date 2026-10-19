@@ -15,7 +15,7 @@ use nitium_core::ime::{ImeAction, ImeState};
 use nitium_core::input::{self, BLANK_URL};
 use nitium_core::profile::Profile;
 use nitium_core::session::Session;
-use nitium_core::settings::Settings;
+use nitium_core::settings::{SEARCH_PRESETS, Settings, SettingsExt, ThemeMode};
 use nitium_core::shortcuts::{self, Modifiers, Shortcut};
 use nitium_core::tabs::{CloseOutcome, TabEntry, TabList};
 use nitium_core::unix_now;
@@ -68,7 +68,7 @@ pub struct BrowserApp {
 
     /// `None` when no profile directory could be determined; nothing is persisted then.
     profile: Option<Profile>,
-    settings: Settings,
+    settings: RefCell<Settings>,
     bookmarks: RefCell<Bookmarks>,
     history: RefCell<History>,
     history_dirty: Cell<bool>,
@@ -134,7 +134,7 @@ impl BrowserApp {
             start_active,
             dark_mode: Cell::new(false),
             profile,
-            settings,
+            settings: RefCell::new(settings),
             bookmarks: RefCell::new(bookmarks),
             history: RefCell::new(history),
             history_dirty: Cell::new(false),
@@ -234,6 +234,38 @@ impl BrowserApp {
         {
             let this = this.clone();
             browser.on_reset_zoom(move || this.zoom_by(|_| zoom::DEFAULT));
+        }
+        {
+            let this = this.clone();
+            browser.on_open_settings(move || this.open_settings());
+        }
+        {
+            let this = this.clone();
+            browser.on_close_settings(move || this.close_settings());
+        }
+        {
+            let this = this.clone();
+            browser.on_save_settings(move |home, search, restore, theme| {
+                this.save_settings(home.as_str(), search.as_str(), restore, theme as usize);
+            });
+        }
+        {
+            let this = this.clone();
+            browser.on_select_search_preset(move |index| {
+                this.select_search_preset(index as usize);
+            });
+        }
+        {
+            let this = this.clone();
+            browser.on_clear_history(move || this.clear_history());
+        }
+        {
+            let this = this.clone();
+            browser.on_clear_bookmarks(move || this.clear_bookmarks());
+        }
+        {
+            let this = this.clone();
+            browser.on_clear_browsing_data(move || this.clear_browsing_data());
         }
 
         let webview = app.global::<WebviewLogic>();
@@ -548,7 +580,7 @@ impl BrowserApp {
         if text.trim().is_empty() {
             return;
         }
-        let url = input::resolve(text, &self.settings.search_url);
+        let url = input::resolve(text, &self.settings.borrow().search_url);
         self.with_engine(|engine| engine.load_url(&url));
         self.clear_suggestions();
         if let Some(app) = self.app.upgrade() {
@@ -626,6 +658,10 @@ impl BrowserApp {
                 return false;
             };
             let logic = app.global::<BrowserLogic>();
+            if logic.get_settings_open() {
+                self.close_settings();
+                return true;
+            }
             if logic.get_menu_visible() {
                 self.menu_dismiss();
                 return true;
@@ -684,6 +720,7 @@ impl BrowserApp {
                     self.select_tab(id);
                 }
             }
+            Shortcut::Settings => self.toggle_settings(),
         }
         true
     }
@@ -1204,6 +1241,121 @@ impl BrowserApp {
         });
         if force_address || !logic.get_address_focused() {
             logic.set_address(input::display_url(&entry.url).into());
+        }
+    }
+
+    // -- Settings ------------------------------------------------------------
+
+    fn open_settings(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let logic = app.global::<BrowserLogic>();
+        let settings = self.settings.borrow();
+        logic.set_settings_home_url(settings.home_url.as_str().into());
+        logic.set_settings_search_url(settings.search_url.as_str().into());
+        logic.set_settings_search_preset(settings.search_preset_index().unwrap_or(6) as i32);
+        logic.set_settings_restore_session(settings.restore_session);
+        logic.set_settings_theme(settings.theme.as_index() as i32);
+        logic.set_settings_status("".into());
+        logic.set_settings_open(true);
+    }
+
+    fn close_settings(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        app.global::<BrowserLogic>().set_settings_open(false);
+    }
+
+    fn toggle_settings(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let logic = app.global::<BrowserLogic>();
+        if logic.get_settings_open() {
+            self.close_settings();
+        } else {
+            self.open_settings();
+        }
+    }
+
+    fn select_search_preset(&self, index: usize) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let logic = app.global::<BrowserLogic>();
+        if let Some(preset) = SEARCH_PRESETS.get(index) {
+            logic.set_settings_search_url(preset.url_template.into());
+            logic.set_settings_search_preset(index as i32);
+        } else {
+            logic.set_settings_search_preset(6); // Custom
+        }
+    }
+
+    fn save_settings(
+        &self,
+        home_url: &str,
+        search_url: &str,
+        restore_session: bool,
+        theme_index: usize,
+    ) {
+        let mut settings = self.settings.borrow_mut();
+        settings.home_url = home_url.to_string();
+        settings.search_url = search_url.to_string();
+        settings.restore_session = restore_session;
+        settings.theme = ThemeMode::from_index(theme_index);
+        let sanitized = settings.clone().sanitized();
+        *settings = sanitized;
+
+        if let Some(profile) = self.profile.as_ref() {
+            if let Err(err) = settings.save(profile) {
+                eprintln!("nitium: cannot save settings: {err}");
+            }
+        }
+
+        let is_dark = match settings.theme {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => false,
+        };
+        drop(settings);
+        self.with_engine(|engine| engine.set_theme(is_dark));
+
+        if let Some(app) = self.app.upgrade() {
+            app.global::<BrowserLogic>().set_settings_status("Settings saved.".into());
+        }
+    }
+
+    fn clear_history(&self) {
+        self.history.borrow_mut().clear();
+        if let Some(profile) = self.profile.as_ref() {
+            if let Err(err) = self.history.borrow().save(profile) {
+                eprintln!("nitium: cannot save history: {err}");
+            }
+        }
+        if let Some(app) = self.app.upgrade() {
+            app.global::<BrowserLogic>().set_settings_status("Browsing history cleared.".into());
+        }
+    }
+
+    fn clear_bookmarks(&self) {
+        self.bookmarks.borrow_mut().clear();
+        if let Some(profile) = self.profile.as_ref() {
+            if let Err(err) = self.bookmarks.borrow().save(profile) {
+                eprintln!("nitium: cannot save bookmarks: {err}");
+            }
+        }
+        self.sync_active(false);
+        if let Some(app) = self.app.upgrade() {
+            app.global::<BrowserLogic>().set_settings_status("Bookmarks cleared.".into());
+        }
+    }
+
+    fn clear_browsing_data(&self) {
+        self.with_engine(|engine| engine.clear_browsing_data());
+        if let Some(app) = self.app.upgrade() {
+            app.global::<BrowserLogic>().set_settings_status("Cookies and cache cleared.".into());
         }
     }
 }

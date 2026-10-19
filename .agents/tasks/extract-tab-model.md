@@ -19,8 +19,8 @@ The tab list logic (selection after close, relative/indexed selection, reopen-cl
 in `apps/nitium/src/browser.rs` where it cannot be unit tested without building Servo.
 
 ## Steps
-- [ ] Design a `TabList` in `nitium-core` over plain data (id, url, title, ...), independent of Slint
-- [ ] Move: successor choice on close, `select_relative`, `select_index`, closed-URL stack (cap 25), session snapshot
-- [ ] Keep `BrowserApp` as the adapter that mirrors it into the Slint `VecModel`
-- [ ] Tests for the cases that matter: close active tab picks the neighbour, close last quits, wrap-around, reopen order
-- [ ] Also covers the old "unit tests for tab model" item; URL, bookmark, history, session, find, ime, zoom tests already exist (62 in `nitium-core`)
+- [x] Design a `TabList` in `nitium-core` over plain data (id, url, title, ...), independent of Slint
+- [x] Move: successor choice on close, `select_relative`, `select_index`, closed-URL stack (cap 25), session snapshot
+- [x] Keep `BrowserApp` as the adapter that mirrors it into the Slint `VecModel`
+- [x] Tests for the cases that matter: close active tab picks the neighbour, close last quits, wrap-around, reopen order
+- [x] Also covers the old "unit tests for tab model" item; URL, bookmark, history, session, find, ime, zoom tests already exist (62 in `nitium-core`)

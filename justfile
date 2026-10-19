@@ -10,11 +10,11 @@ run *args:
 
 # Type-check UI shell and core logic without building Servo.
 check-fast:
-    cargo check -p nitium-core -p nitium-shell
+    cargo check -p nitium-settings -p nitium-core -p nitium-shell
 
 # Run unit tests in core and shell without building Servo.
 test-fast:
-    cargo test -p nitium-core -p nitium-shell
+    cargo test -p nitium-settings -p nitium-core -p nitium-shell
 
 # Type-check the full workspace (including Servo).
 check:

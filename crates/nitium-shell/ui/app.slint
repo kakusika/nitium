@@ -96,6 +96,23 @@ export global BrowserLogic {
     /// Returns true when the key press was an application shortcut and must
     /// not reach the page.
     callback shortcut(KeyEvent) -> bool;
+
+    // Settings overlay
+    in-out property <bool> settings-open: false;
+    in-out property <string> settings-home-url: "";
+    in-out property <string> settings-search-url: "";
+    in-out property <int> settings-search-preset: 0;
+    in-out property <bool> settings-restore-session: true;
+    in-out property <int> settings-theme: 0;
+    in property <string> settings-status: "";
+
+    callback open-settings();
+    callback close-settings();
+    callback save-settings(string, string, bool, int);
+    callback select-search-preset(int);
+    callback clear-history();
+    callback clear-bookmarks();
+    callback clear-browsing-data();
 }
 
 component BrowserTab inherits Rectangle {
@@ -590,6 +607,361 @@ component LoadingBar inherits Rectangle {
     }
 }
 
+component SettingsButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    in property <bool> destructive: false;
+    callback clicked <=> touch.clicked;
+
+    height: 32px;
+    border-radius: Tokens.corner-radius;
+    background: root.active ? Tokens.accent-soft : (touch.has-hover ? (root.destructive ? #ff444433 : Tokens.hover-on-surface) : Tokens.surface);
+    border-width: Tokens.border-width;
+    border-color: root.active ? Tokens.accent : (root.destructive ? #ff444466 : Tokens.border-on-surface);
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+    }
+
+    Text {
+        text: root.text;
+        color: root.active ? Tokens.accent : (root.destructive ? #ff6666 : (touch.has-hover ? Tokens.text-primary : Tokens.text-secondary));
+        font-size: Tokens.font-size-small;
+        font-weight: root.active ? 600 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+/// Modal settings overlay.
+component SettingsLayer inherits Rectangle {
+    background: #000000a0;
+
+    // Swallows click on backdrop and closes settings
+    TouchArea {
+        clicked => { BrowserLogic.close-settings(); }
+    }
+
+    FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                BrowserLogic.close-settings();
+                return accept;
+            }
+            reject
+        }
+
+        Rectangle {
+            width: min(560px, parent.width - 32px);
+            max-height: min(680px, parent.height - 32px);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Tokens.surface-raised;
+            border-radius: Tokens.corner-radius + 4px;
+            border-width: Tokens.border-width;
+            border-color: Tokens.border-on-raised;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000080;
+            drop-shadow-offset-y: 8px;
+            clip: true;
+
+            // Stop click inside card from bubbling to backdrop
+            TouchArea { }
+
+            VerticalLayout {
+                padding: Tokens.spacing-large;
+                spacing: Tokens.spacing-medium;
+
+                // Header
+                HorizontalLayout {
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: Tokens.spacing-small;
+
+                        Icon {
+                            width: 20px;
+                            height: 20px;
+                            source: TablerIcons.settings;
+                            color: Tokens.accent;
+                        }
+
+                        Text {
+                            text: "Settings";
+                            color: Tokens.text-primary;
+                            font-size: Tokens.font-size-large;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    IconButton {
+                        width: 28px;
+                        height: 28px;
+                        icon: TablerIcons.x;
+                        clicked => { BrowserLogic.close-settings(); }
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Tokens.divider-on-raised;
+                }
+
+                // Scrollable content
+                Flickable {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        spacing: Tokens.spacing-large;
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+
+                        // Section 1: Search & Navigation
+                        VerticalLayout {
+                            spacing: Tokens.spacing-small;
+
+                            Text {
+                                text: "SEARCH ENGINE";
+                                color: Tokens.accent;
+                                font-size: Tokens.font-size-small;
+                                font-weight: 600;
+                            }
+
+                            // Presets row 1
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Google";
+                                    active: BrowserLogic.settings-search-preset == 0;
+                                    clicked => { BrowserLogic.select-search-preset(0); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "DuckDuckGo";
+                                    active: BrowserLogic.settings-search-preset == 1;
+                                    clicked => { BrowserLogic.select-search-preset(1); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Bing";
+                                    active: BrowserLogic.settings-search-preset == 2;
+                                    clicked => { BrowserLogic.select-search-preset(2); }
+                                }
+                            }
+
+                            // Presets row 2
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Brave";
+                                    active: BrowserLogic.settings-search-preset == 3;
+                                    clicked => { BrowserLogic.select-search-preset(3); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Yahoo";
+                                    active: BrowserLogic.settings-search-preset == 4;
+                                    clicked => { BrowserLogic.select-search-preset(4); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Ecosia";
+                                    active: BrowserLogic.settings-search-preset == 5;
+                                    clicked => { BrowserLogic.select-search-preset(5); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Custom";
+                                    active: BrowserLogic.settings-search-preset == 6;
+                                    clicked => { BrowserLogic.select-search-preset(6); }
+                                }
+                            }
+
+                            Text {
+                                text: "Query URL (%s is replaced with search term):";
+                                color: Tokens.text-secondary-on-raised;
+                                font-size: Tokens.font-size-small;
+                            }
+
+                            DialogField {
+                                text <=> BrowserLogic.settings-search-url;
+                                placeholder: "https://example.com/search?q=%s";
+                            }
+                        }
+
+                        // Section 2: Home Page & Startup
+                        VerticalLayout {
+                            spacing: Tokens.spacing-small;
+
+                            Text {
+                                text: "STARTUP & HOME PAGE";
+                                color: Tokens.accent;
+                                font-size: Tokens.font-size-small;
+                                font-weight: 600;
+                            }
+
+                            Text {
+                                text: "Home Page URL:";
+                                color: Tokens.text-secondary-on-raised;
+                                font-size: Tokens.font-size-small;
+                            }
+
+                            DialogField {
+                                text <=> BrowserLogic.settings-home-url;
+                                placeholder: "https://servo.org";
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-medium;
+
+                                Rectangle {
+                                    width: 20px;
+                                    height: 20px;
+                                    border-radius: 4px;
+                                    background: BrowserLogic.settings-restore-session ? Tokens.accent : Tokens.surface;
+                                    border-width: Tokens.border-width;
+                                    border-color: Tokens.border-on-surface;
+
+                                    if BrowserLogic.settings-restore-session: Icon {
+                                        width: 14px;
+                                        height: 14px;
+                                        source: TablerIcons.check;
+                                        color: #ffffff;
+                                    }
+
+                                    TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            BrowserLogic.settings-restore-session = !BrowserLogic.settings-restore-session;
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    text: "Restore tabs from previous session on startup";
+                                    color: Tokens.text-primary;
+                                    font-size: Tokens.font-size-normal;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Section 3: Appearance
+                        VerticalLayout {
+                            spacing: Tokens.spacing-small;
+
+                            Text {
+                                text: "APPEARANCE";
+                                color: Tokens.accent;
+                                font-size: Tokens.font-size-small;
+                                font-weight: 600;
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "System Default";
+                                    active: BrowserLogic.settings-theme == 0;
+                                    clicked => { BrowserLogic.settings-theme = 0; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Light";
+                                    active: BrowserLogic.settings-theme == 1;
+                                    clicked => { BrowserLogic.settings-theme = 1; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Dark";
+                                    active: BrowserLogic.settings-theme == 2;
+                                    clicked => { BrowserLogic.settings-theme = 2; }
+                                }
+                            }
+                        }
+
+                        // Section 4: Privacy & Browsing Data
+                        VerticalLayout {
+                            spacing: Tokens.spacing-small;
+
+                            Text {
+                                text: "PRIVACY & BROWSING DATA";
+                                color: Tokens.accent;
+                                font-size: Tokens.font-size-small;
+                                font-weight: 600;
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Clear History";
+                                    clicked => { BrowserLogic.clear-history(); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Clear Bookmarks";
+                                    clicked => { BrowserLogic.clear-bookmarks(); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Clear Cookies & Cache";
+                                    destructive: true;
+                                    clicked => { BrowserLogic.clear-browsing-data(); }
+                                }
+                            }
+                        }
+
+                        if BrowserLogic.settings-status != "": Text {
+                            text: BrowserLogic.settings-status;
+                            color: Tokens.accent;
+                            font-size: Tokens.font-size-small;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Tokens.divider-on-raised;
+                }
+
+                // Footer actions
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: Tokens.spacing-medium;
+
+                    SettingsButton {
+                        width: 100px;
+                        text: "Cancel";
+                        clicked => { BrowserLogic.close-settings(); }
+                    }
+
+                    SettingsButton {
+                        width: 130px;
+                        text: "Save & Close";
+                        active: true;
+                        clicked => {
+                            BrowserLogic.save-settings(
+                                BrowserLogic.settings-home-url,
+                                BrowserLogic.settings-search-url,
+                                BrowserLogic.settings-restore-session,
+                                BrowserLogic.settings-theme,
+                            );
+                            BrowserLogic.close-settings();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: BrowserLogic.window-title;
     preferred-width: 1280px;
@@ -747,6 +1119,20 @@ export component AppWindow inherits Window {
                         active: BrowserLogic.bookmarked;
                         clicked => { BrowserLogic.toggle-bookmark(); }
                     }
+
+                    IconButton {
+                        width: 30px;
+                        height: 30px;
+                        icon: TablerIcons.settings;
+                        active: BrowserLogic.settings-open;
+                        clicked => {
+                            if BrowserLogic.settings-open {
+                                BrowserLogic.close-settings();
+                            } else {
+                                BrowserLogic.open-settings();
+                            }
+                        }
+                    }
                 }
             }
 
@@ -843,6 +1229,14 @@ export component AppWindow inherits Window {
         width: 100%;
         height: 100%;
         visible: BrowserLogic.dialog-visible;
+    }
+
+    settings-layer := SettingsLayer {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        visible: BrowserLogic.settings-open;
     }
 
     changed address-has-focus => { BrowserLogic.address-focused = address.has-focus; }

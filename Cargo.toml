@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "apps/desktop",
   "crates/nitium-core",
+  "crates/nitium-settings",
   "crates/nitium-shell",
   "crates/nitium-webview",
 ]
@@ -17,6 +18,7 @@ publish = false
 
 [workspace.dependencies]
 nitium-core = { path = "crates/nitium-core" }
+nitium-settings = { path = "crates/nitium-settings" }
 nitium-shell = { path = "crates/nitium-shell" }
 nitium-webview = { path = "crates/nitium-webview" }
 
