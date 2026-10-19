@@ -33,6 +33,7 @@ origiri-viewport = { git = "https://github.com/kakusika/origiri-frameworks.git" 
 
 #= Servo & Webview
 servo = "0.7.0"
+servo-allocator = { version = "0.7.0", features = ["use-jemalloc"] }
 surfman = "0.14.0"
 glow = "0.17"
 gl = "0.14"
