@@ -41,11 +41,13 @@ All Markdown files (`README.md`, `AGENTS.md`, `CLAUDE.md`) are generated build a
 Nitium is a lightweight, stateful desktop web browser built with Servo, Slint, and Origiri frameworks.
 Workspace crates:
 
-- `apps/desktop`: Desktop application binary wiring `nitium-shell` and `nitium-webview`
-- `apps/android`: Android application package wiring `nitium-shell` and Slint Android backend
+- `apps/desktop`: Desktop application binary wiring `nitium-desktop-shell` and `nitium-webview`
+- `apps/desktop-shell`: Desktop Slint UI shell (`AppWindow`)
+- `apps/android`: Android application package wiring `nitium-android-shell` and Slint Android backend
+- `apps/android-shell`: Android Slint UI shell (`MobileAppWindow`)
 - `crates/nitium-core`: Pure Rust browser logic with zero Servo or Slint dependencies (address input, tabs, shortcuts, controls, bookmarks, history, session, find, zoom, IME)
 - `crates/nitium-settings`: User settings, search presets, validation, and storage
-- `crates/nitium-shell`: Slint UI shell and `BrowserApp` state management (zero Servo dependency)
+- `crates/nitium-shell`: Slint UI shell common abstractions and `BrowserApp` state management (zero Servo dependency)
 - `crates/nitium-webview`: Servo 0.7 browser engine integration and WGPU/Surfman rendering bridge
 
 Read `CONTRIBUTING.md` for the contribution workflow, commit conventions, and verification steps.

@@ -1,0 +1,118 @@
+import { TabInfo, SuggestionInfo, BookmarkItem, HistoryItem, MenuRow } from "types.slint";
+
+export { TabInfo, SuggestionInfo, BookmarkItem, HistoryItem, MenuRow }
+
+/// Browser state owned by the application (tabs, address bar) and the user
+/// intents the UI raises. The Rust side implements every callback.
+export global BrowserLogic {
+    in property <[TabInfo]> tabs;
+    in property <string> window-title: "Nitium";
+    in property <bool> can-go-back;
+    in property <bool> can-go-forward;
+    in property <bool> loading;
+    /// Whether the active page is bookmarked.
+    in property <bool> bookmarked;
+    in-out property <string> address;
+    in-out property <bool> address-focused;
+    in property <[SuggestionInfo]> suggestions;
+    /// Highlighted suggestion, or -1 when the user is just typing.
+    in-out property <int> suggestion-index: -1;
+    /// Page zoom in percent (100 = normal).
+    in property <int> zoom-percent: 100;
+
+    // Find in page.
+    in-out property <bool> find-open;
+    in-out property <string> find-text;
+    in-out property <bool> find-focused;
+    /// "3/12", "No matches", or empty.
+    in property <string> find-status;
+    // A question from the page (script dialog, permission, HTTP authentication).
+    // kind: 0 alert, 1 confirm, 2 prompt, 3 permission, 4 authentication.
+    in property <bool> dialog-visible;
+    in property <int> dialog-kind;
+    in property <string> dialog-title;
+    in property <string> dialog-message;
+    in-out property <string> dialog-input;
+    in-out property <string> dialog-password;
+    callback dialog-accept();
+    callback dialog-cancel();
+
+    // The popup menu, positioned relative to the page area.
+    in property <bool> menu-visible;
+    in property <[MenuRow]> menu-rows;
+    in property <length> menu-x;
+    in property <length> menu-y;
+    in property <length> menu-width;
+    in property <length> menu-height;
+    callback menu-activate(int);
+    callback menu-dismiss();
+
+    callback find-changed(string);
+    callback find-next();
+    callback find-previous();
+    callback find-close();
+    callback reset-zoom();
+
+    callback new-tab();
+    callback toggle-bookmark();
+    /// The user changed the address text (not raised for programmatic changes).
+    callback address-edited(string);
+    callback close-tab(int);
+    callback select-tab(int);
+    callback navigate(string);
+    callback back();
+    callback forward();
+    callback reload();
+    /// Returns true when the key press was an application shortcut and must
+    /// not reach the page.
+    callback shortcut(KeyEvent) -> bool;
+
+    // UI focus requests (raised by Rust controller, implemented by window)
+    callback focus-address();
+    callback focus-content();
+    callback focus-find();
+    callback focus-dialog();
+
+    // Settings overlay
+    in-out property <bool> settings-open: false;
+    in-out property <string> settings-home-url: "";
+    in-out property <string> settings-search-url: "";
+    in-out property <int> settings-search-preset: 0;
+    in-out property <bool> settings-restore-session: true;
+    in-out property <int> settings-theme: 0;
+    in-out property <string> settings-theme-preset: "system";
+    in-out property <string> settings-accent-color: "default";
+    in-out property <string> settings-corner-radius: "small";
+    in property <string> settings-status: "";
+
+    callback open-settings();
+    callback close-settings();
+    callback save-settings(string, string, bool, int, string, string, string);
+    callback select-search-preset(int);
+    callback clear-history();
+    callback clear-bookmarks();
+    callback clear-browsing-data();
+
+    // Bookmarks overlay
+    in-out property <bool> bookmarks-open: false;
+    in property <[BookmarkItem]> bookmarks-list;
+    in-out property <string> bookmarks-filter: "";
+    callback open-bookmarks();
+    callback close-bookmarks();
+    callback filter-bookmarks(string);
+    callback open-bookmark(string);
+    callback open-bookmark-new-tab(string);
+    callback remove-bookmark(string);
+
+    // History overlay
+    in-out property <bool> history-open: false;
+    in property <[HistoryItem]> history-list;
+    in-out property <string> history-filter: "";
+    callback open-history();
+    callback close-history();
+    callback filter-history(string);
+    callback open-history-item(string);
+    callback open-history-new-tab(string);
+    callback remove-history-item(string);
+    callback clear-all-history();
+}

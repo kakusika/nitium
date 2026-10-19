@@ -10,11 +10,13 @@ Nitium is a modern, responsive desktop web browser that embeds Mozilla's Servo b
 
 ## Workspace Layout
 
-- `apps/desktop` (`nitium-desktop`) -- Desktop application binary wiring `nitium-shell` and `nitium-webview`.
-- `apps/android` (`nitium-android`) -- Android application package wiring `nitium-shell` and Slint Android backend.
+- `apps/desktop` (`nitium-desktop`) -- Desktop application binary wiring `nitium-desktop-shell` and `nitium-webview`.
+- `apps/desktop-shell` (`nitium-desktop-shell`) -- Desktop Slint UI shell (`AppWindow`).
+- `apps/android` (`nitium-android`) -- Android application package wiring `nitium-android-shell` and Slint Android backend.
+- `apps/android-shell` (`nitium-android-shell`) -- Android Slint UI shell (`MobileAppWindow`).
 - `crates/nitium-core` (`nitium-core`) -- Pure Rust domain logic with zero Servo or Slint dependencies (address input, tabs, shortcuts, controls, bookmarks, history, session, find, zoom, IME).
 - `crates/nitium-settings` (`nitium-settings`) -- User settings, search presets, validation, and storage.
-- `crates/nitium-shell` (`nitium-shell`) -- Slint UI shell and `BrowserApp` state management (zero Servo dependency).
+- `crates/nitium-shell` (`nitium-shell`) -- Slint UI shell common abstractions and `BrowserApp` state management (zero Servo dependency).
 - `crates/nitium-webview` (`nitium-webview`) -- Servo 0.7 browser engine integration and WGPU/Surfman rendering bridge.
 
 ## Building and Running

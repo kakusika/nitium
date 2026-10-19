@@ -8,13 +8,13 @@ default:
 run *args:
     cargo run -p nitium-desktop -- {{args}}
 
-# Type-check UI shell and core logic without building Servo.
+# Type-check UI shells and core logic without building Servo.
 check-fast:
-    cargo check -p nitium-settings -p nitium-core -p nitium-shell
+    cargo check -p nitium-settings -p nitium-core -p nitium-shell -p nitium-desktop-shell -p nitium-android-shell
 
-# Run unit tests in core and shell without building Servo.
+# Run unit tests in core and shells without building Servo.
 test-fast:
-    cargo test -p nitium-settings -p nitium-core -p nitium-shell
+    cargo test -p nitium-settings -p nitium-core -p nitium-shell -p nitium-desktop-shell -p nitium-android-shell
 
 # Type-check the full workspace (including Servo).
 check:

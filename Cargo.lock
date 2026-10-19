@@ -5179,9 +5179,24 @@ version = "0.1.0"
 dependencies = [
  "i-slint-backend-android-activity",
  "jni 0.21.1",
- "nitium-shell",
+ "nitium-android-shell",
  "nitium-webview",
  "slint",
+]
+
+[[package]]
+name = "nitium-android-shell"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "nitium-core",
+ "nitium-settings",
+ "nitium-shell",
+ "origiri",
+ "origiri-build",
+ "origiri-theme",
+ "slint",
+ "slint-build",
 ]
 
 [[package]]
@@ -5198,9 +5213,24 @@ dependencies = [
 name = "nitium-desktop"
 version = "0.1.0"
 dependencies = [
- "nitium-shell",
+ "nitium-desktop-shell",
  "nitium-webview",
  "servo-allocator",
+]
+
+[[package]]
+name = "nitium-desktop-shell"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "nitium-core",
+ "nitium-settings",
+ "nitium-shell",
+ "origiri",
+ "origiri-build",
+ "origiri-theme",
+ "slint",
+ "slint-build",
 ]
 
 [[package]]

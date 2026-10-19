@@ -7,7 +7,6 @@
 pub mod browser;
 pub mod theme;
 
-use slint::ComponentHandle;
 use slint::language::{KeyEvent, PointerEvent};
 
 pub use nitium_core::controls::{
@@ -93,22 +92,4 @@ pub type EngineFactory = Box<
     ) -> Result<Box<dyn WebEngine>, String>,
 >;
 
-/// Runs the Nitium desktop application with the provided [`EngineFactory`].
-pub fn run(
-    cli_args: Vec<String>,
-    engine_factory: EngineFactory,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let app = AppWindow::new()?;
-    let browser = browser::BrowserApp::install(&app, cli_args, engine_factory);
-
-    {
-        let browser = browser.clone();
-        let _ = app.window().set_rendering_notifier(move |rendering, api| {
-            browser.on_rendering_notifier(&rendering, api);
-        });
-    }
-
-    app.run()?;
-    browser.save_all();
-    Ok(())
-}
+pub use browser::{BrowserApp, BrowserHost};

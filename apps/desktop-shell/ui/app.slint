@@ -1,0 +1,1715 @@
+import { ScrollView } from "std-widgets.slint";
+import { IconButton } from "@origiri/widgets.slint";
+import { Icon, TablerIcons } from "@origiri-icons/icons.slint";
+import {
+    Tokens,
+    TabInfo,
+    SuggestionInfo,
+    BookmarkItem,
+    HistoryItem,
+    MenuRow,
+    BrowserLogic,
+    Webview,
+    WebviewLogic,
+} from "@nitium_shell";
+
+component BrowserTab inherits Rectangle {
+    in property <TabInfo> info;
+    callback select();
+    callback close();
+
+    property <string> label: root.info.title != "" ? root.info.title : (root.info.url != "" ? root.info.url : "New Tab");
+
+    height: 32px;
+    border-top-left-radius: Tokens.corner-radius + 2px;
+    border-top-right-radius: Tokens.corner-radius + 2px;
+    background: root.info.active ? Tokens.surface : (touch.has-hover ? Tokens.hover : transparent);
+    animate background { duration: Tokens.anim-very-short * 1ms; }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.select(); }
+        pointer-event(event) => {
+            if event.button == PointerEventButton.middle && event.kind == PointerEventKind.up {
+                root.close();
+            }
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: Tokens.spacing-medium;
+        padding-right: Tokens.spacing-small;
+        spacing: Tokens.spacing-small;
+
+        Rectangle {
+            width: 14px;
+            Icon {
+                x: 0px;
+                y: (parent.height - self.height) / 2;
+                width: 14px;
+                height: 14px;
+                source: root.info.loading ? TablerIcons.refresh : TablerIcons.world;
+                color: root.info.active ? Tokens.accent : Tokens.text-secondary;
+            }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            color: root.info.active ? Tokens.text-primary : Tokens.text-secondary;
+            font-size: Tokens.font-size-small;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Rectangle {
+            width: 22px;
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                width: 22px;
+                height: 22px;
+                icon-size: 12px;
+                icon: TablerIcons.x;
+                clicked => { root.close(); }
+            }
+        }
+    }
+}
+
+component AddressBar inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    out property <bool> has-focus: input.has-focus;
+    callback accepted(string);
+    callback edited(string);
+    /// Up/Down in the field: -1 or +1.
+    callback move-selection(int);
+
+    public function focus-and-select() {
+        input.focus();
+        input.select-all();
+    }
+
+    height: 30px;
+    border-radius: Tokens.corner-radius + 2px;
+    border-width: input.has-focus ? 1.5px : Tokens.border-width;
+    border-color: input.has-focus ? Tokens.accent : (touch.has-hover ? Tokens.border-hover-on-surface : Tokens.border-on-surface);
+    background: Tokens.background;
+    animate border-color { duration: Tokens.anim-very-short * 1ms; }
+
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => { root.focus-and-select(); }
+    }
+
+    HorizontalLayout {
+        padding-left: Tokens.spacing-medium;
+        padding-right: Tokens.spacing-medium;
+        spacing: Tokens.spacing-small;
+
+        Rectangle {
+            width: 14px;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                width: 14px;
+                height: 14px;
+                source: TablerIcons.search;
+                color: Tokens.text-secondary;
+            }
+        }
+
+        input := TextInput {
+            horizontal-stretch: 1;
+            color: Tokens.text-primary;
+            font-size: Tokens.font-size-normal;
+            vertical-alignment: center;
+            single-line: true;
+            accepted => { root.accepted(self.text); }
+            edited => { root.edited(self.text); }
+            key-pressed(event) => {
+                if event.text == Key.DownArrow {
+                    root.move-selection(1);
+                    return accept;
+                }
+                if event.text == Key.UpArrow {
+                    root.move-selection(-1);
+                    return accept;
+                }
+                reject
+            }
+        }
+    }
+
+    if root.text == "" && !input.has-focus: Text {
+        x: Tokens.spacing-medium + 14px + Tokens.spacing-small;
+        text: "Search or enter address";
+        color: Tokens.text-disabled-on-surface;
+        font-size: Tokens.font-size-normal;
+        vertical-alignment: center;
+    }
+}
+
+/// The find-in-page strip: query field, match counter, previous/next, close.
+component FindBar inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> status;
+    out property <bool> has-focus: input.has-focus;
+    callback edited(string);
+    callback next();
+    callback previous();
+    callback close();
+
+    public function focus-and-select() {
+        input.focus();
+        input.select-all();
+    }
+
+    background: Tokens.surface;
+
+    HorizontalLayout {
+        padding-left: Tokens.spacing-medium;
+        padding-right: Tokens.spacing-medium;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        spacing: Tokens.spacing-small;
+
+        Rectangle {
+            horizontal-stretch: 0;
+            width: 260px;
+            border-radius: Tokens.corner-radius + 2px;
+            border-width: input.has-focus ? 1.5px : Tokens.border-width;
+            border-color: input.has-focus ? Tokens.accent : Tokens.border-on-surface;
+            background: Tokens.background;
+
+            HorizontalLayout {
+                padding-left: Tokens.spacing-medium;
+                padding-right: Tokens.spacing-medium;
+
+                input := TextInput {
+                    color: Tokens.text-primary;
+                    font-size: Tokens.font-size-normal;
+                    vertical-alignment: center;
+                    single-line: true;
+                    edited => { root.edited(self.text); }
+                    key-pressed(event) => {
+                        if event.text == Key.Return {
+                            if event.modifiers.shift {
+                                root.previous();
+                            } else {
+                                root.next();
+                            }
+                            return accept;
+                        }
+                        reject
+                    }
+                }
+            }
+
+            if input.text == "" && !input.has-focus: Text {
+                x: Tokens.spacing-medium;
+                text: "Find in page";
+                color: Tokens.text-disabled-on-surface;
+                font-size: Tokens.font-size-normal;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            horizontal-stretch: 0;
+            min-width: 70px;
+            text: root.status;
+            color: Tokens.text-secondary;
+            font-size: Tokens.font-size-small;
+            vertical-alignment: center;
+        }
+
+        IconButton {
+            width: 28px;
+            height: 28px;
+            icon: TablerIcons.chevron-up;
+            clicked => { root.previous(); }
+        }
+        IconButton {
+            width: 28px;
+            height: 28px;
+            icon: TablerIcons.chevron-down;
+            clicked => { root.next(); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        IconButton {
+            width: 28px;
+            height: 28px;
+            icon: TablerIcons.x;
+            clicked => { root.close(); }
+        }
+    }
+}
+
+component DialogButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    callback clicked();
+
+    height: 32px;
+    min-width: 84px;
+    border-radius: Tokens.corner-radius + 2px;
+    background: root.primary ? (touch.has-hover ? Tokens.accent-hover : Tokens.accent) : (touch.has-hover ? Tokens.hover-on-raised : Tokens.surface);
+    border-width: root.primary ? 0px : Tokens.border-width;
+    border-color: Tokens.border-on-raised;
+    animate background { duration: Tokens.anim-very-short * 1ms; }
+
+    Text {
+        text: root.text;
+        color: root.primary ? Tokens.text-on-accent : Tokens.text-primary;
+        font-size: Tokens.font-size-normal;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component DialogField inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder;
+    in property <InputType> input-type: InputType.text;
+    callback accepted();
+
+    public function focus-and-select() {
+        input.focus();
+        input.select-all();
+    }
+
+    height: 32px;
+    border-radius: Tokens.corner-radius + 2px;
+    border-width: input.has-focus ? 1.5px : Tokens.border-width;
+    border-color: input.has-focus ? Tokens.accent : Tokens.border-on-raised;
+    background: Tokens.background;
+
+    HorizontalLayout {
+        padding-left: Tokens.spacing-medium;
+        padding-right: Tokens.spacing-medium;
+
+        input := TextInput {
+            color: Tokens.text-primary;
+            font-size: Tokens.font-size-normal;
+            vertical-alignment: center;
+            single-line: true;
+            input-type: root.input-type;
+            accepted => { root.accepted(); }
+        }
+    }
+
+    if root.text == "" && root.placeholder != "" && !input.has-focus: Text {
+        x: Tokens.spacing-medium;
+        text: root.placeholder;
+        color: Tokens.text-disabled-on-surface;
+        font-size: Tokens.font-size-normal;
+        vertical-alignment: center;
+    }
+}
+
+/// Modal question from the page. Dims everything and takes the keyboard.
+component DialogLayer inherits Rectangle {
+    background: #000000a0;
+
+    property <int> kind: BrowserLogic.dialog-kind;
+    property <bool> asks-text: root.kind == 2 || root.kind == 4;
+
+    /// Puts the cursor where the user will type, or on the dialog itself.
+    public function focus-first() {
+        if root.asks-text {
+            first-field.focus-and-select();
+        } else {
+            keys.focus();
+        }
+    }
+
+    // Swallows every click so nothing behind the dialog can be reached.
+    TouchArea { }
+
+    keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                BrowserLogic.dialog-cancel();
+                return accept;
+            }
+            if event.text == Key.Return {
+                BrowserLogic.dialog-accept();
+                return accept;
+            }
+            reject
+        }
+
+        Rectangle {
+            width: min(440px, parent.width - 32px);
+            height: card.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: max(16px, (parent.height - self.height) / 3);
+            background: Tokens.surface-raised;
+            border-radius: Tokens.corner-radius + 4px;
+            border-width: Tokens.border-width;
+            border-color: Tokens.border-on-raised;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000080;
+            drop-shadow-offset-y: 8px;
+
+            card := VerticalLayout {
+                padding: Tokens.spacing-large;
+                spacing: Tokens.spacing-medium;
+
+                Text {
+                    text: BrowserLogic.dialog-title;
+                    color: Tokens.text-primary;
+                    font-size: Tokens.font-size-large;
+                    font-weight: 600;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: BrowserLogic.dialog-message;
+                    color: Tokens.text-secondary-on-raised;
+                    font-size: Tokens.font-size-normal;
+                    wrap: word-wrap;
+                    max-height: 240px;
+                    overflow: elide;
+                }
+
+                first-field := DialogField {
+                    visible: root.asks-text;
+                    height: root.asks-text ? 32px : 0px;
+                    text <=> BrowserLogic.dialog-input;
+                    placeholder: root.kind == 4 ? "User name" : "";
+                    accepted => { BrowserLogic.dialog-accept(); }
+                }
+
+                if root.kind == 4: DialogField {
+                    text <=> BrowserLogic.dialog-password;
+                    placeholder: "Password";
+                    input-type: InputType.password;
+                    accepted => { BrowserLogic.dialog-accept(); }
+                }
+
+                HorizontalLayout {
+                    spacing: Tokens.spacing-medium;
+                    alignment: end;
+
+                    if root.kind != 0: DialogButton {
+                        text: root.kind == 3 ? "Deny" : "Cancel";
+                        clicked => { BrowserLogic.dialog-cancel(); }
+                    }
+                    DialogButton {
+                        primary: true;
+                        text: root.kind == 3 ? "Allow" : (root.kind == 4 ? "Sign in" : "OK");
+                        clicked => { BrowserLogic.dialog-accept(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Context menu / `<select>` list. A click anywhere outside dismisses it.
+component MenuLayer inherits Rectangle {
+    /// Where the page area starts in the window; menu positions are relative to it.
+    in property <length> origin-x;
+    in property <length> origin-y;
+
+    TouchArea {
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down {
+                BrowserLogic.menu-dismiss();
+            }
+        }
+    }
+
+    Rectangle {
+        width: min(max(BrowserLogic.menu-width, 180px), root.width - 8px);
+        height: min(BrowserLogic.menu-height, root.height - 8px);
+        x: max(4px, min(root.origin-x + BrowserLogic.menu-x, root.width - self.width - 4px));
+        y: max(4px, min(root.origin-y + BrowserLogic.menu-y, root.height - self.height - 4px));
+        background: Tokens.surface-raised;
+        border-radius: Tokens.corner-radius + 2px;
+        border-width: Tokens.border-width;
+        border-color: Tokens.border-on-raised;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #00000070;
+        drop-shadow-offset-y: 4px;
+        clip: true;
+
+        Flickable {
+            list := VerticalLayout {
+                padding: 4px;
+
+                for row[i] in BrowserLogic.menu-rows: Rectangle {
+                    height: row.separator ? 9px : 28px;
+
+                    if row.separator: Rectangle {
+                        x: 8px;
+                        y: 4px;
+                        width: parent.width - 16px;
+                        height: 1px;
+                        background: Tokens.divider-on-raised;
+                    }
+
+                    if !row.separator: Rectangle {
+                        border-radius: Tokens.corner-radius;
+                        background: (row.enabled && !row.heading && row-touch.has-hover) ? Tokens.hover-on-raised : transparent;
+
+                        if row.checked: Icon {
+                            x: 6px;
+                            y: (parent.height - self.height) / 2;
+                            width: 14px;
+                            height: 14px;
+                            source: TablerIcons.check;
+                            color: Tokens.accent;
+                        }
+
+                        Text {
+                            x: row.indented ? 26px : 24px;
+                            width: parent.width - self.x - 8px;
+                            height: parent.height;
+                            text: row.label;
+                            color: row.heading ? Tokens.text-secondary-on-raised : (row.enabled ? Tokens.text-primary : Tokens.text-disabled-on-raised);
+                            font-size: Tokens.font-size-small;
+                            font-weight: row.heading ? 600 : 400;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        row-touch := TouchArea {
+                            enabled: row.enabled && !row.heading;
+                            mouse-cursor: pointer;
+                            clicked => { BrowserLogic.menu-activate(i); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Thin indeterminate bar shown under the toolbar while a page loads.
+component LoadingBar inherits Rectangle {
+    height: 2px;
+    clip: true;
+    background: Tokens.accent-soft;
+
+    Rectangle {
+        width: parent.width * 0.3;
+        height: parent.height;
+        x: mod(animation-tick() / 1.1s, 1.0) * (parent.width * 1.3) - self.width;
+        background: Tokens.accent;
+    }
+}
+
+component SettingsButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    in property <bool> destructive: false;
+    callback clicked <=> touch.clicked;
+
+    height: 32px;
+    border-radius: Tokens.corner-radius;
+    background: root.active ? Tokens.accent-soft : (touch.has-hover ? (root.destructive ? #ff444433 : Tokens.hover-on-surface) : Tokens.surface);
+    border-width: Tokens.border-width;
+    border-color: root.active ? Tokens.accent : (root.destructive ? #ff444466 : Tokens.border-on-surface);
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+    }
+
+    Text {
+        text: root.text;
+        color: root.active ? Tokens.accent : (root.destructive ? #ff6666 : (touch.has-hover ? Tokens.text-primary : Tokens.text-secondary));
+        font-size: Tokens.font-size-small;
+        font-weight: root.active ? 600 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component SettingsColorButton inherits Rectangle {
+    in property <color> swatch-color;
+    in property <string> text;
+    in property <bool> active: false;
+    callback clicked <=> touch.clicked;
+
+    height: 32px;
+    border-radius: Tokens.corner-radius;
+    background: root.active ? Tokens.accent-soft : (touch.has-hover ? Tokens.hover-on-surface : Tokens.surface);
+    border-width: Tokens.border-width;
+    border-color: root.active ? Tokens.accent : Tokens.border-on-surface;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+    }
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: Tokens.spacing-small;
+        padding-left: Tokens.spacing-small;
+        padding-right: Tokens.spacing-small;
+
+        Rectangle {
+            width: 12px;
+            height: 12px;
+            border-radius: 6px;
+            background: root.swatch-color;
+            border-width: 1px;
+            border-color: #ffffff40;
+        }
+
+        Text {
+            text: root.text;
+            color: root.active ? Tokens.accent : (touch.has-hover ? Tokens.text-primary : Tokens.text-secondary);
+            font-size: Tokens.font-size-small;
+            font-weight: root.active ? 600 : 400;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component SearchField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder: "Search...";
+    callback edited(string);
+
+    height: 32px;
+    background: Tokens.surface;
+    border-radius: Tokens.corner-radius;
+    border-width: Tokens.border-width;
+    border-color: input.has-focus ? Tokens.accent : Tokens.border-on-surface;
+
+    HorizontalLayout {
+        padding-left: Tokens.spacing-medium;
+        padding-right: Tokens.spacing-medium;
+        spacing: Tokens.spacing-small;
+
+        Icon {
+            width: 14px;
+            height: 14px;
+            source: TablerIcons.search;
+            color: Tokens.text-secondary;
+        }
+
+        input := TextInput {
+            horizontal-stretch: 1;
+            text <=> root.text;
+            color: Tokens.text-primary;
+            font-size: Tokens.font-size-small;
+            vertical-alignment: center;
+            single-line: true;
+            edited => { root.edited(self.text); }
+        }
+    }
+
+    if root.text == "" && !input.has-focus: Text {
+        x: Tokens.spacing-medium + 14px + Tokens.spacing-small;
+        y: 0px;
+        height: 100%;
+        text: root.placeholder;
+        color: Tokens.text-disabled-on-surface;
+        font-size: Tokens.font-size-small;
+        vertical-alignment: center;
+    }
+}
+
+/// Modal settings overlay.
+component SettingsLayer inherits Rectangle {
+    background: #000000a0;
+
+    // Swallows click on backdrop and closes settings
+    TouchArea {
+        clicked => { BrowserLogic.close-settings(); }
+    }
+
+    FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                BrowserLogic.close-settings();
+                return accept;
+            }
+            reject
+        }
+
+        Rectangle {
+            width: min(560px, parent.width - 32px);
+            max-height: min(680px, parent.height - 32px);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Tokens.surface-raised;
+            border-radius: Tokens.corner-radius + 4px;
+            border-width: Tokens.border-width;
+            border-color: Tokens.border-on-raised;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000080;
+            drop-shadow-offset-y: 8px;
+            clip: true;
+
+            // Stop click inside card from bubbling to backdrop
+            TouchArea { }
+
+            VerticalLayout {
+                padding: Tokens.spacing-large;
+                spacing: Tokens.spacing-medium;
+
+                // Header
+                HorizontalLayout {
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: Tokens.spacing-small;
+
+                        Icon {
+                            width: 20px;
+                            height: 20px;
+                            source: TablerIcons.settings;
+                            color: Tokens.accent;
+                        }
+
+                        Text {
+                            text: "Settings";
+                            color: Tokens.text-primary;
+                            font-size: Tokens.font-size-large;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    IconButton {
+                        width: 28px;
+                        height: 28px;
+                        icon: TablerIcons.x;
+                        clicked => { BrowserLogic.close-settings(); }
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Tokens.divider-on-raised;
+                }
+
+                // Scrollable content
+                Flickable {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        spacing: Tokens.spacing-large;
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+
+                        // Section 1: Search & Navigation
+                        VerticalLayout {
+                            spacing: Tokens.spacing-small;
+
+                            Text {
+                                text: "SEARCH ENGINE";
+                                color: Tokens.accent;
+                                font-size: Tokens.font-size-small;
+                                font-weight: 600;
+                            }
+
+                            // Presets row 1
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Google";
+                                    active: BrowserLogic.settings-search-preset == 0;
+                                    clicked => { BrowserLogic.select-search-preset(0); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "DuckDuckGo";
+                                    active: BrowserLogic.settings-search-preset == 1;
+                                    clicked => { BrowserLogic.select-search-preset(1); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Bing";
+                                    active: BrowserLogic.settings-search-preset == 2;
+                                    clicked => { BrowserLogic.select-search-preset(2); }
+                                }
+                            }
+
+                            // Presets row 2
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Brave";
+                                    active: BrowserLogic.settings-search-preset == 3;
+                                    clicked => { BrowserLogic.select-search-preset(3); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Yahoo";
+                                    active: BrowserLogic.settings-search-preset == 4;
+                                    clicked => { BrowserLogic.select-search-preset(4); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Ecosia";
+                                    active: BrowserLogic.settings-search-preset == 5;
+                                    clicked => { BrowserLogic.select-search-preset(5); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Custom";
+                                    active: BrowserLogic.settings-search-preset == 6;
+                                    clicked => { BrowserLogic.select-search-preset(6); }
+                                }
+                            }
+
+                            Text {
+                                text: "Query URL (%s is replaced with search term):";
+                                color: Tokens.text-secondary-on-raised;
+                                font-size: Tokens.font-size-small;
+                            }
+
+                            DialogField {
+                                text <=> BrowserLogic.settings-search-url;
+                                placeholder: "https://example.com/search?q=%s";
+                            }
+                        }
+
+                        // Section 2: Home Page & Startup
+                        VerticalLayout {
+                            spacing: Tokens.spacing-small;
+
+                            Text {
+                                text: "STARTUP & HOME PAGE";
+                                color: Tokens.accent;
+                                font-size: Tokens.font-size-small;
+                                font-weight: 600;
+                            }
+
+                            Text {
+                                text: "Home Page URL:";
+                                color: Tokens.text-secondary-on-raised;
+                                font-size: Tokens.font-size-small;
+                            }
+
+                            DialogField {
+                                text <=> BrowserLogic.settings-home-url;
+                                placeholder: "https://servo.org";
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-medium;
+
+                                Rectangle {
+                                    width: 20px;
+                                    height: 20px;
+                                    border-radius: 4px;
+                                    background: BrowserLogic.settings-restore-session ? Tokens.accent : Tokens.surface;
+                                    border-width: Tokens.border-width;
+                                    border-color: Tokens.border-on-surface;
+
+                                    if BrowserLogic.settings-restore-session: Icon {
+                                        width: 14px;
+                                        height: 14px;
+                                        source: TablerIcons.check;
+                                        color: #ffffff;
+                                    }
+
+                                    TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            BrowserLogic.settings-restore-session = !BrowserLogic.settings-restore-session;
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    text: "Restore tabs from previous session on startup";
+                                    color: Tokens.text-primary;
+                                    font-size: Tokens.font-size-normal;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Section 3: Appearance & Theme
+                        VerticalLayout {
+                            spacing: Tokens.spacing-small;
+
+                            Text {
+                                text: "APPEARANCE & THEME";
+                                color: Tokens.accent;
+                                font-size: Tokens.font-size-small;
+                                font-weight: 600;
+                            }
+
+                            Text {
+                                text: "Palette Preset";
+                                color: Tokens.text-secondary-on-raised;
+                                font-size: Tokens.font-size-small;
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "System";
+                                    active: BrowserLogic.settings-theme-preset == "system";
+                                    clicked => { BrowserLogic.settings-theme-preset = "system"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Origiri Dark";
+                                    active: BrowserLogic.settings-theme-preset == "dark";
+                                    clicked => { BrowserLogic.settings-theme-preset = "dark"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Origiri Light";
+                                    active: BrowserLogic.settings-theme-preset == "light";
+                                    clicked => { BrowserLogic.settings-theme-preset = "light"; }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Tokyo Night";
+                                    active: BrowserLogic.settings-theme-preset == "tokyonight-night";
+                                    clicked => { BrowserLogic.settings-theme-preset = "tokyonight-night"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Catppuccin";
+                                    active: BrowserLogic.settings-theme-preset == "catppuccin-mocha";
+                                    clicked => { BrowserLogic.settings-theme-preset = "catppuccin-mocha"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Flexoki";
+                                    active: BrowserLogic.settings-theme-preset == "flexoki-dark";
+                                    clicked => { BrowserLogic.settings-theme-preset = "flexoki-dark"; }
+                                }
+                            }
+
+                            Text {
+                                text: "Accent Color";
+                                color: Tokens.text-secondary-on-raised;
+                                font-size: Tokens.font-size-small;
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsColorButton {
+                                    horizontal-stretch: 1;
+                                    text: "Default";
+                                    swatch-color: #d12a55;
+                                    active: BrowserLogic.settings-accent-color == "default" || BrowserLogic.settings-accent-color == "";
+                                    clicked => { BrowserLogic.settings-accent-color = "default"; }
+                                }
+                                SettingsColorButton {
+                                    horizontal-stretch: 1;
+                                    text: "Blue";
+                                    swatch-color: #3b82f6;
+                                    active: BrowserLogic.settings-accent-color == "#3b82f6";
+                                    clicked => { BrowserLogic.settings-accent-color = "#3b82f6"; }
+                                }
+                                SettingsColorButton {
+                                    horizontal-stretch: 1;
+                                    text: "Emerald";
+                                    swatch-color: #10b981;
+                                    active: BrowserLogic.settings-accent-color == "#10b981";
+                                    clicked => { BrowserLogic.settings-accent-color = "#10b981"; }
+                                }
+                                SettingsColorButton {
+                                    horizontal-stretch: 1;
+                                    text: "Purple";
+                                    swatch-color: #8b5cf6;
+                                    active: BrowserLogic.settings-accent-color == "#8b5cf6";
+                                    clicked => { BrowserLogic.settings-accent-color = "#8b5cf6"; }
+                                }
+                                SettingsColorButton {
+                                    horizontal-stretch: 1;
+                                    text: "Orange";
+                                    swatch-color: #f97316;
+                                    active: BrowserLogic.settings-accent-color == "#f97316";
+                                    clicked => { BrowserLogic.settings-accent-color = "#f97316"; }
+                                }
+                            }
+
+                            Text {
+                                text: "Corner Radius";
+                                color: Tokens.text-secondary-on-raised;
+                                font-size: Tokens.font-size-small;
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "None (0px)";
+                                    active: BrowserLogic.settings-corner-radius == "disabled";
+                                    clicked => { BrowserLogic.settings-corner-radius = "disabled"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Small (4px)";
+                                    active: BrowserLogic.settings-corner-radius == "small" || BrowserLogic.settings-corner-radius == "";
+                                    clicked => { BrowserLogic.settings-corner-radius = "small"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Medium (8px)";
+                                    active: BrowserLogic.settings-corner-radius == "medium";
+                                    clicked => { BrowserLogic.settings-corner-radius = "medium"; }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Large (14px)";
+                                    active: BrowserLogic.settings-corner-radius == "large";
+                                    clicked => { BrowserLogic.settings-corner-radius = "large"; }
+                                }
+                            }
+                        }
+
+                        // Section 4: Privacy & Browsing Data
+                        VerticalLayout {
+                            spacing: Tokens.spacing-small;
+
+                            Text {
+                                text: "PRIVACY & BROWSING DATA";
+                                color: Tokens.accent;
+                                font-size: Tokens.font-size-small;
+                                font-weight: 600;
+                            }
+
+                            HorizontalLayout {
+                                spacing: Tokens.spacing-small;
+
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Clear History";
+                                    clicked => { BrowserLogic.clear-history(); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Clear Bookmarks";
+                                    clicked => { BrowserLogic.clear-bookmarks(); }
+                                }
+                                SettingsButton {
+                                    horizontal-stretch: 1;
+                                    text: "Clear Cookies & Cache";
+                                    destructive: true;
+                                    clicked => { BrowserLogic.clear-browsing-data(); }
+                                }
+                            }
+                        }
+
+                        if BrowserLogic.settings-status != "": Text {
+                            text: BrowserLogic.settings-status;
+                            color: Tokens.accent;
+                            font-size: Tokens.font-size-small;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Tokens.divider-on-raised;
+                }
+
+                // Footer actions
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: Tokens.spacing-medium;
+
+                    SettingsButton {
+                        width: 100px;
+                        text: "Cancel";
+                        clicked => { BrowserLogic.close-settings(); }
+                    }
+
+                    SettingsButton {
+                        width: 130px;
+                        text: "Save & Close";
+                        active: true;
+                        clicked => {
+                            BrowserLogic.save-settings(
+                                BrowserLogic.settings-home-url,
+                                BrowserLogic.settings-search-url,
+                                BrowserLogic.settings-restore-session,
+                                BrowserLogic.settings-theme,
+                                BrowserLogic.settings-theme-preset,
+                                BrowserLogic.settings-accent-color,
+                                BrowserLogic.settings-corner-radius,
+                            );
+                            BrowserLogic.close-settings();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Modal bookmarks overlay.
+component BookmarksLayer inherits Rectangle {
+    background: #000000a0;
+
+    TouchArea {
+        clicked => { BrowserLogic.close-bookmarks(); }
+    }
+
+    FocusScope {
+        width: 100%;
+        height: 100%;
+
+        Rectangle {
+            width: 560px;
+            height: 520px;
+            background: Tokens.surface-raised;
+            border-radius: Tokens.corner-radius + 4px;
+            border-width: Tokens.border-width;
+            border-color: Tokens.border-on-raised;
+            clip: true;
+
+            TouchArea {
+                // Prevent clicking inside dialog from closing overlay
+            }
+
+            VerticalLayout {
+                padding: Tokens.spacing-large;
+                spacing: Tokens.spacing-medium;
+
+                // Header
+                HorizontalLayout {
+                    spacing: Tokens.spacing-small;
+
+                    Icon {
+                        width: 20px;
+                        height: 20px;
+                        source: TablerIcons.bookmark;
+                        color: Tokens.accent;
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Bookmarks";
+                        color: Tokens.text-primary;
+                        font-size: Tokens.font-size-large;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+
+                    IconButton {
+                        width: 24px;
+                        height: 24px;
+                        icon: TablerIcons.x;
+                        clicked => { BrowserLogic.close-bookmarks(); }
+                    }
+                }
+
+                SearchField {
+                    text <=> BrowserLogic.bookmarks-filter;
+                    placeholder: "Search bookmarks...";
+                    edited(query) => { BrowserLogic.filter-bookmarks(query); }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Tokens.divider-on-raised;
+                }
+
+                // Bookmarks list
+                ScrollView {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        spacing: 2px;
+
+                        for item in BrowserLogic.bookmarks-list: Rectangle {
+                            height: 48px;
+                            border-radius: Tokens.corner-radius;
+                            background: row-touch.has-hover ? Tokens.hover-on-raised : transparent;
+
+                            row-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { BrowserLogic.open-bookmark(item.url); }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: Tokens.spacing-medium;
+                                padding-right: Tokens.spacing-medium;
+                                spacing: Tokens.spacing-medium;
+
+                                Icon {
+                                    width: 16px;
+                                    height: 16px;
+                                    source: TablerIcons.star;
+                                    color: Tokens.accent;
+                                }
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 2px;
+
+                                    Text {
+                                        text: item.title != "" ? item.title : item.url;
+                                        color: Tokens.text-primary;
+                                        font-size: Tokens.font-size-small;
+                                        font-weight: 500;
+                                        overflow: elide;
+                                    }
+
+                                    Text {
+                                        text: item.url;
+                                        color: Tokens.text-secondary-on-raised;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
+
+                                if row-touch.has-hover: HorizontalLayout {
+                                    spacing: Tokens.spacing-small;
+                                    alignment: center;
+
+                                    IconButton {
+                                        width: 28px;
+                                        height: 28px;
+                                        icon: TablerIcons.external-link;
+                                        clicked => { BrowserLogic.open-bookmark-new-tab(item.url); }
+                                    }
+
+                                    IconButton {
+                                        width: 28px;
+                                        height: 28px;
+                                        icon: TablerIcons.trash;
+                                        clicked => { BrowserLogic.remove-bookmark(item.url); }
+                                    }
+                                }
+                            }
+                        }
+
+                        if BrowserLogic.bookmarks-list.length == 0: VerticalLayout {
+                            alignment: center;
+                            height: 160px;
+                            Text {
+                                text: "No bookmarks yet.";
+                                color: Tokens.text-disabled-on-raised;
+                                font-size: Tokens.font-size-normal;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Modal history overlay.
+component HistoryLayer inherits Rectangle {
+    background: #000000a0;
+
+    TouchArea {
+        clicked => { BrowserLogic.close-history(); }
+    }
+
+    FocusScope {
+        width: 100%;
+        height: 100%;
+
+        Rectangle {
+            width: 600px;
+            height: 540px;
+            background: Tokens.surface-raised;
+            border-radius: Tokens.corner-radius + 4px;
+            border-width: Tokens.border-width;
+            border-color: Tokens.border-on-raised;
+            clip: true;
+
+            TouchArea {
+                // Prevent clicking inside dialog from closing overlay
+            }
+
+            VerticalLayout {
+                padding: Tokens.spacing-large;
+                spacing: Tokens.spacing-medium;
+
+                // Header
+                HorizontalLayout {
+                    spacing: Tokens.spacing-small;
+
+                    Icon {
+                        width: 20px;
+                        height: 20px;
+                        source: TablerIcons.history;
+                        color: Tokens.accent;
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Browsing History";
+                        color: Tokens.text-primary;
+                        font-size: Tokens.font-size-large;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+
+                    IconButton {
+                        width: 24px;
+                        height: 24px;
+                        icon: TablerIcons.x;
+                        clicked => { BrowserLogic.close-history(); }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Tokens.spacing-medium;
+
+                    SearchField {
+                        horizontal-stretch: 1;
+                        text <=> BrowserLogic.history-filter;
+                        placeholder: "Search history...";
+                        edited(query) => { BrowserLogic.filter-history(query); }
+                    }
+
+                    SettingsButton {
+                        width: 120px;
+                        text: "Clear All";
+                        destructive: true;
+                        clicked => { BrowserLogic.clear-all-history(); }
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Tokens.divider-on-raised;
+                }
+
+                // History list
+                ScrollView {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        spacing: 2px;
+
+                        for item in BrowserLogic.history-list: Rectangle {
+                            height: 50px;
+                            border-radius: Tokens.corner-radius;
+                            background: row-touch.has-hover ? Tokens.hover-on-raised : transparent;
+
+                            row-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { BrowserLogic.open-history-item(item.url); }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: Tokens.spacing-medium;
+                                padding-right: Tokens.spacing-medium;
+                                spacing: Tokens.spacing-medium;
+
+                                Icon {
+                                    width: 16px;
+                                    height: 16px;
+                                    source: TablerIcons.clock;
+                                    color: Tokens.text-secondary-on-raised;
+                                }
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 2px;
+
+                                    Text {
+                                        text: item.title != "" ? item.title : item.url;
+                                        color: Tokens.text-primary;
+                                        font-size: Tokens.font-size-small;
+                                        font-weight: 500;
+                                        overflow: elide;
+                                    }
+
+                                    Text {
+                                        text: item.url;
+                                        color: Tokens.text-secondary-on-raised;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
+
+                                Text {
+                                    text: item.date-label;
+                                    color: Tokens.text-disabled-on-raised;
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                }
+
+                                if row-touch.has-hover: HorizontalLayout {
+                                    spacing: Tokens.spacing-small;
+                                    alignment: center;
+
+                                    IconButton {
+                                        width: 28px;
+                                        height: 28px;
+                                        icon: TablerIcons.external-link;
+                                        clicked => { BrowserLogic.open-history-new-tab(item.url); }
+                                    }
+
+                                    IconButton {
+                                        width: 28px;
+                                        height: 28px;
+                                        icon: TablerIcons.trash;
+                                        clicked => { BrowserLogic.remove-history-item(item.url); }
+                                    }
+                                }
+                            }
+                        }
+
+                        if BrowserLogic.history-list.length == 0: VerticalLayout {
+                            alignment: center;
+                            height: 160px;
+                            Text {
+                                text: "No history found.";
+                                color: Tokens.text-disabled-on-raised;
+                                font-size: Tokens.font-size-normal;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: BrowserLogic.window-title;
+    preferred-width: 1280px;
+    preferred-height: 800px;
+    min-width: 480px;
+    min-height: 320px;
+    background: Tokens.background;
+
+    /// Focuses the address bar and selects its text (Ctrl+L).
+    public function focus-address() {
+        address.focus-and-select();
+    }
+
+    /// Moves keyboard focus into the page.
+    public function focus-content() {
+        webview.focus-content();
+    }
+
+    /// Puts the cursor into the page dialog's first field (or on the dialog itself).
+    public function focus-dialog() {
+        dialog-layer.focus-first();
+    }
+
+    /// Focuses the find bar's query field and selects its text (Ctrl+F).
+    public function focus-find() {
+        find-bar.focus-and-select();
+    }
+
+    FocusScope {
+        width: 100%;
+        height: 100%;
+
+        // Shortcuts are decided before the focused element (address bar or
+        // page) sees the key, so they work regardless of where focus is.
+        capture-key-pressed(event) => {
+            if BrowserLogic.shortcut(event) {
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            // Tab strip
+            tab-strip := Rectangle {
+                height: 36px;
+                background: Tokens.background;
+
+                HorizontalLayout {
+                    padding-top: 4px;
+                    padding-left: Tokens.spacing-small;
+                    padding-right: Tokens.spacing-small;
+
+                    // Tabs shrink from their preferred width down to a minimum as more are
+                    // opened; the filler at the end absorbs any spare room.
+                    for tab in BrowserLogic.tabs: BrowserTab {
+                        preferred-width: 200px;
+                        min-width: 72px;
+                        max-width: 220px;
+                        horizontal-stretch: 1;
+                        info: tab;
+                        select => { BrowserLogic.select-tab(tab.id); }
+                        close => { BrowserLogic.close-tab(tab.id); }
+                    }
+
+                    Rectangle {
+                        width: 34px;
+                        horizontal-stretch: 0;
+                        IconButton {
+                            width: 28px;
+                            height: 28px;
+                            icon: TablerIcons.plus;
+                            clicked => { BrowserLogic.new-tab(); }
+                        }
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1000;
+                        min-width: 0px;
+                    }
+                }
+            }
+
+            // Toolbar
+            Rectangle {
+                height: 44px;
+                background: Tokens.surface;
+
+                HorizontalLayout {
+                    padding-left: Tokens.spacing-medium;
+                    padding-right: Tokens.spacing-medium;
+                    padding-top: 7px;
+                    padding-bottom: 7px;
+                    spacing: Tokens.spacing-small;
+
+                    IconButton {
+                        width: 30px;
+                        height: 30px;
+                        icon: TablerIcons.arrow-left;
+                        enabled: BrowserLogic.can-go-back;
+                        clicked => { BrowserLogic.back(); }
+                    }
+                    IconButton {
+                        width: 30px;
+                        height: 30px;
+                        icon: TablerIcons.arrow-right;
+                        enabled: BrowserLogic.can-go-forward;
+                        clicked => { BrowserLogic.forward(); }
+                    }
+                    IconButton {
+                        width: 30px;
+                        height: 30px;
+                        icon: TablerIcons.refresh;
+                        clicked => { BrowserLogic.reload(); }
+                    }
+
+                    address := AddressBar {
+                        horizontal-stretch: 1;
+                        text <=> BrowserLogic.address;
+                        accepted(text) => {
+                            if BrowserLogic.suggestion-index >= 0 && BrowserLogic.suggestion-index < BrowserLogic.suggestions.length {
+                                BrowserLogic.navigate(BrowserLogic.suggestions[BrowserLogic.suggestion-index].url);
+                            } else {
+                                BrowserLogic.navigate(text);
+                            }
+                        }
+                        edited(text) => { BrowserLogic.address-edited(text); }
+                        move-selection(delta) => {
+                            BrowserLogic.suggestion-index = max(-1, min(BrowserLogic.suggestions.length - 1, BrowserLogic.suggestion-index + delta));
+                        }
+                    }
+
+                    if BrowserLogic.zoom-percent != 100: Rectangle {
+                        width: 56px;
+                        border-radius: Tokens.corner-radius + 2px;
+                        background: zoom-touch.has-hover ? Tokens.hover : Tokens.background;
+
+                        Text {
+                            text: "\{BrowserLogic.zoom-percent}%";
+                            color: Tokens.text-secondary;
+                            font-size: Tokens.font-size-small;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        zoom-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { BrowserLogic.reset-zoom(); }
+                        }
+                    }
+
+                    IconButton {
+                        width: 30px;
+                        height: 30px;
+                        icon: TablerIcons.star;
+                        active: BrowserLogic.bookmarked;
+                        clicked => { BrowserLogic.toggle-bookmark(); }
+                    }
+
+                    IconButton {
+                        width: 30px;
+                        height: 30px;
+                        icon: TablerIcons.bookmark;
+                        active: BrowserLogic.bookmarks-open;
+                        clicked => {
+                            if BrowserLogic.bookmarks-open {
+                                BrowserLogic.close-bookmarks();
+                            } else {
+                                BrowserLogic.open-bookmarks();
+                            }
+                        }
+                    }
+
+                    IconButton {
+                        width: 30px;
+                        height: 30px;
+                        icon: TablerIcons.history;
+                        active: BrowserLogic.history-open;
+                        clicked => {
+                            if BrowserLogic.history-open {
+                                BrowserLogic.close-history();
+                            } else {
+                                BrowserLogic.open-history();
+                            }
+                        }
+                    }
+
+                    IconButton {
+                        width: 30px;
+                        height: 30px;
+                        icon: TablerIcons.settings;
+                        active: BrowserLogic.settings-open;
+                        clicked => {
+                            if BrowserLogic.settings-open {
+                                BrowserLogic.close-settings();
+                            } else {
+                                BrowserLogic.open-settings();
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 2px;
+                background: Tokens.surface;
+                if BrowserLogic.loading: LoadingBar {}
+            }
+
+            find-bar := FindBar {
+                visible: BrowserLogic.find-open;
+                height: BrowserLogic.find-open ? 38px : 0px;
+                text <=> BrowserLogic.find-text;
+                status: BrowserLogic.find-status;
+                edited(text) => { BrowserLogic.find-changed(text); }
+                next => { BrowserLogic.find-next(); }
+                previous => { BrowserLogic.find-previous(); }
+                close => { BrowserLogic.find-close(); }
+            }
+
+            webview := Webview {
+                vertical-stretch: 1;
+            }
+        }
+    }
+
+    // Address bar suggestions, drawn last so they sit above the page.
+    if address.has-focus && BrowserLogic.suggestions.length > 0: Rectangle {
+        x: address.absolute-position.x;
+        y: address.absolute-position.y + address.height + 2px;
+        width: address.width;
+        height: BrowserLogic.suggestions.length * 34px + 8px;
+        background: Tokens.surface-raised;
+        border-radius: Tokens.corner-radius + 2px;
+        border-width: Tokens.border-width;
+        border-color: Tokens.border-on-raised;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #00000066;
+        drop-shadow-offset-y: 4px;
+
+        VerticalLayout {
+            padding: 4px;
+
+            for suggestion[i] in BrowserLogic.suggestions: Rectangle {
+                height: 34px;
+                border-radius: Tokens.corner-radius;
+                background: i == BrowserLogic.suggestion-index ? Tokens.selected-on-raised : (row-touch.has-hover ? Tokens.hover-on-raised : transparent);
+
+                row-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { BrowserLogic.navigate(suggestion.url); }
+                }
+
+                HorizontalLayout {
+                    padding-left: Tokens.spacing-medium;
+                    padding-right: Tokens.spacing-medium;
+                    spacing: Tokens.spacing-medium;
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: suggestion.title;
+                        color: Tokens.text-primary;
+                        font-size: Tokens.font-size-small;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        horizontal-stretch: 2;
+                        text: suggestion.url;
+                        color: Tokens.text-secondary-on-raised;
+                        font-size: Tokens.font-size-small;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+    }
+
+    menu-layer := MenuLayer {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        visible: BrowserLogic.menu-visible;
+        origin-x: webview.absolute-position.x;
+        origin-y: webview.absolute-position.y;
+    }
+
+    dialog-layer := DialogLayer {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        visible: BrowserLogic.dialog-visible;
+    }
+
+    settings-layer := SettingsLayer {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        visible: BrowserLogic.settings-open;
+    }
+
+    bookmarks-layer := BookmarksLayer {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        visible: BrowserLogic.bookmarks-open;
+    }
+
+    history-layer := HistoryLayer {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        visible: BrowserLogic.history-open;
+    }
+
+    changed address-has-focus => { BrowserLogic.address-focused = address.has-focus; }
+    property <bool> address-has-focus: address.has-focus;
+    changed find-has-focus => { BrowserLogic.find-focused = find-bar.has-focus; }
+    property <bool> find-has-focus: find-bar.has-focus;
+}

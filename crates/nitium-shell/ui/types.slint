@@ -1,0 +1,38 @@
+export struct TabInfo {
+    id: int,
+    title: string,
+    url: string,
+    loading: bool,
+    active: bool,
+    can-go-back: bool,
+    can-go-forward: bool,
+}
+
+/// One row of the address bar drop-down.
+export struct SuggestionInfo {
+    title: string,
+    url: string,
+}
+
+export struct BookmarkItem {
+    url: string,
+    title: string,
+}
+
+export struct HistoryItem {
+    url: string,
+    title: string,
+    date-label: string,
+    visits: int,
+}
+
+/// One row of the popup menu (a context menu or a `<select>` list).
+export struct MenuRow {
+    label: string,
+    enabled: bool,
+    separator: bool,
+    checked: bool,
+    /// A group heading: shown dimmed, not clickable.
+    heading: bool,
+    indented: bool,
+}

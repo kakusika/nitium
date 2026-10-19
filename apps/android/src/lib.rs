@@ -7,7 +7,7 @@ pub fn android_main(app: slint::android::AndroidApp) {
     slint::android::init(app).expect("initialize the Android backend");
 
     let cli_args = Vec::new();
-    if let Err(e) = nitium_shell::run(
+    if let Err(e) = nitium_android_shell::run(
         cli_args,
         Box::new(
             |device, queue, viewport_width, viewport_height, scale_factor, dark_mode, on_event| {

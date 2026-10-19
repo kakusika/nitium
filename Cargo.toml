@@ -2,7 +2,9 @@
 resolver = "3"
 members = [
   "apps/android",
+  "apps/android-shell",
   "apps/desktop",
+  "apps/desktop-shell",
   "crates/nitium-core",
   "crates/nitium-settings",
   "crates/nitium-shell",
@@ -18,7 +20,9 @@ license-file = "LICENSE"
 publish = false
 
 [workspace.dependencies]
+nitium-android-shell = { path = "apps/android-shell" }
 nitium-core = { path = "crates/nitium-core" }
+nitium-desktop-shell = { path = "apps/desktop-shell" }
 nitium-settings = { path = "crates/nitium-settings" }
 nitium-shell = { path = "crates/nitium-shell" }
 nitium-webview = { path = "crates/nitium-webview" }
@@ -33,9 +37,9 @@ origiri-theme = { git = "https://github.com/kakusika/origiri-frameworks.git" }
 origiri-viewport = { git = "https://github.com/kakusika/origiri-frameworks.git" }
 
 #= Servo & Webview
-servo = "0.7.0"
-servo-allocator = { version = "0.7.0", features = ["use-jemalloc"] }
-surfman = "0.14.0"
+servo = "0.7"
+servo-allocator = { version = "0.7", features = ["use-jemalloc"] }
+surfman = "0.14"
 glow = "0.17"
 gl = "0.14"
 gleam = "0.15"
@@ -51,8 +55,9 @@ slint = { version = "1.18", default-features = false, features = [
   "unstable-wgpu-30",
 ] }
 slint-build = "1.18"
+i-slint-backend-android-activity = { version = "=1.18.1", default-features = false }
 
-#= Utilities
+#= Crates.io
 anyhow = "1.0"
 directories = "6.0"
 dirs = "5.0"
@@ -63,6 +68,7 @@ image = { version = "0.25", default-features = false, features = [
   "png",
   "webp",
 ] }
+jni = "0.21"
 log = "0.4"
 rustls = { version = "0.23", features = ["ring"] }
 serde = { version = "1", features = ["derive"] }
@@ -89,5 +95,3 @@ opt-level = 3
 # across Slint and Servo cleanly.
 i-slint-compiler = { path = "patches/i-slint-compiler" }
 i-slint-backend-android-activity = { path = "patches/i-slint-backend-android-activity" }
-
-

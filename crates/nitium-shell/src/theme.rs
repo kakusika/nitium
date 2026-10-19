@@ -2,11 +2,11 @@
 
 use origiri_theme::palette::{self, RgbColor, presets};
 use origiri_theme::{CornerRadius, Rgba, ThemeSettings};
-use slint::{Color, ComponentHandle};
+use slint::Color;
 
 use nitium_settings::{Settings, ThemeMode};
 
-use crate::{AppWindow, Tokens};
+use crate::Tokens;
 
 fn color(rgba: Rgba) -> Color {
     Color::from_argb_u8(rgba.a, rgba.r, rgba.g, rgba.b)
@@ -51,9 +51,7 @@ pub fn resolve_variant_id(settings: &Settings, system_dark: bool) -> &'static st
 
 /// Resolves the theme from user settings and applies it to the window's `Tokens` global.
 /// Returns whether the resolved theme is dark (for synchronizing the page engine).
-pub fn apply_theme(app: &AppWindow, settings: &Settings, system_dark: bool) -> bool {
-    let tokens = app.global::<Tokens>();
-
+pub fn apply_theme(tokens: &Tokens, settings: &Settings, system_dark: bool) -> bool {
     let variant_id = resolve_variant_id(settings, system_dark);
     let is_dark = palette::is_dark_variant(variant_id);
 

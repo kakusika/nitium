@@ -21,11 +21,11 @@ use nitium_core::tabs::{CloseOutcome, TabEntry, TabList};
 use nitium_core::unix_now;
 use nitium_core::zoom;
 use slint::platform::Key;
-use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use slint::{Global, Model, ModelRc, SharedString, VecModel};
 
 use crate::{
-    AppWindow, BookmarkItem, BrowserEvent, BrowserLogic, EngineFactory, HistoryItem, MenuRow,
-    SuggestionInfo, TabInfo, WebEngine, WebviewLogic,
+    BookmarkItem, BrowserEvent, BrowserLogic, EngineFactory, HistoryItem, MenuRow,
+    SuggestionInfo, TabInfo, Tokens, WebEngine, WebviewLogic,
 };
 
 const MAX_SUGGESTIONS: usize = 8;
@@ -52,9 +52,40 @@ impl Popup {
     }
 }
 
+/// Abstraction over the host window for scaling and redraw requests.
+#[derive(Clone)]
+pub struct BrowserHost {
+    pub scale_factor: Rc<dyn Fn() -> f32>,
+    pub request_redraw: Rc<dyn Fn()>,
+}
+
+impl BrowserHost {
+    pub fn new<FScale, FRedraw>(scale_factor: FScale, request_redraw: FRedraw) -> Self
+    where
+        FScale: Fn() -> f32 + 'static,
+        FRedraw: Fn() + 'static,
+    {
+        Self {
+            scale_factor: Rc::new(scale_factor),
+            request_redraw: Rc::new(request_redraw),
+        }
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        (self.scale_factor)()
+    }
+
+    pub fn request_redraw(&self) {
+        (self.request_redraw)();
+    }
+}
+
 pub struct BrowserApp {
     weak_self: Weak<BrowserApp>,
-    app: slint::Weak<AppWindow>,
+    host: BrowserHost,
+    browser: slint::Weak<BrowserLogic<'static>>,
+    webview: slint::Weak<WebviewLogic<'static>>,
+    tokens: slint::Weak<Tokens<'static>>,
     engine_factory: EngineFactory,
     engine: RefCell<Option<Box<dyn WebEngine>>>,
     /// Pure domain model for open tabs and the closed-tab stack.
@@ -129,10 +160,25 @@ fn startup_pages(
 }
 
 impl BrowserApp {
+    pub fn browser(&self) -> Option<BrowserLogic<'static>> {
+        self.browser.upgrade()
+    }
+
+    pub fn webview(&self) -> Option<WebviewLogic<'static>> {
+        self.webview.upgrade()
+    }
+
+    pub fn tokens(&self) -> Option<Tokens<'static>> {
+        self.tokens.upgrade()
+    }
+
     /// Wires every UI callback to the browser. The engine itself is created later,
     /// from [`Self::on_rendering_notifier`], once the GPU device exists.
-    pub fn install(
-        app: &AppWindow,
+    pub fn install<'a>(
+        host: BrowserHost,
+        browser: BrowserLogic<'a>,
+        webview: WebviewLogic<'a>,
+        tokens: Tokens<'a>,
         cli_args: Vec<String>,
         engine_factory: EngineFactory,
     ) -> Rc<Self> {
@@ -141,10 +187,14 @@ impl BrowserApp {
         let bookmarks = profile.as_ref().map(Bookmarks::load).unwrap_or_default();
         let history = profile.as_ref().map(History::load).unwrap_or_default();
         let (start_tabs, start_active) = startup_pages(&cli_args, profile.as_ref(), &settings);
+        let dark_mode = crate::theme::apply_theme(&tokens, &settings, true);
 
         let this = Rc::new_cyclic(|weak| Self {
             weak_self: weak.clone(),
-            app: app.as_weak(),
+            host,
+            browser: browser.as_weak(),
+            webview: webview.as_weak(),
+            tokens: tokens.as_weak(),
             engine_factory,
             engine: RefCell::new(None),
             tab_list: RefCell::new(TabList::new()),
@@ -152,7 +202,7 @@ impl BrowserApp {
             start_tabs,
             start_active,
             lazy_id_counter: Cell::new(1_000_000),
-            dark_mode: Cell::new(false),
+            dark_mode: Cell::new(dark_mode),
             profile,
             settings: RefCell::new(settings),
             bookmarks: RefCell::new(bookmarks),
@@ -176,7 +226,6 @@ impl BrowserApp {
                 });
         }
 
-        let browser = app.global::<BrowserLogic>();
         browser.set_tabs(ModelRc::from(this.tabs.clone()));
         browser.set_menu_rows(ModelRc::from(this.menu_rows.clone()));
         {
@@ -348,7 +397,6 @@ impl BrowserApp {
             browser.on_clear_all_history(move || this.clear_all_history());
         }
 
-        let webview = app.global::<WebviewLogic>();
         {
             let this = this.clone();
             webview.on_theme(move |scheme| {
@@ -393,12 +441,6 @@ impl BrowserApp {
             webview.on_ime_commit(move |text| this.ime_commit(text.as_str()));
         }
 
-        if let Some(app) = this.app.upgrade() {
-            let settings = this.settings.borrow();
-            let is_dark = crate::theme::apply_theme(&app, &settings, true);
-            this.dark_mode.set(is_dark);
-        }
-
         this
     }
 
@@ -416,13 +458,14 @@ impl BrowserApp {
             eprintln!("nitium: GraphicsAPI is not WGPU30, got: {graphics_api:?}");
             return;
         };
-        let Some(app) = self.app.upgrade() else {
-            return;
+        let (width, height) = match self.webview() {
+            Some(w) => (
+                w.get_viewport_width().max(800.0),
+                w.get_viewport_height().max(600.0),
+            ),
+            None => (800.0, 600.0),
         };
-        let logic = app.global::<WebviewLogic>();
-        let width = logic.get_viewport_width().max(800.0);
-        let height = logic.get_viewport_height().max(600.0);
-        let scale = app.window().scale_factor();
+        let scale = self.host.scale_factor();
 
         eprintln!("nitium: Initializing web engine ({width}x{height} @ scale {scale})...");
         let weak = Rc::downgrade(self);
@@ -503,10 +546,10 @@ impl BrowserApp {
     fn handle_event(&self, event: BrowserEvent) {
         match event {
             BrowserEvent::Frame(image) => {
-                if let Some(app) = self.app.upgrade() {
-                    app.global::<WebviewLogic>().set_web_content(image);
-                    app.window().request_redraw();
+                if let Some(w) = self.webview() {
+                    w.set_web_content(image);
                 }
+                self.host.request_redraw();
             }
             BrowserEvent::TabOpened { tab } => {
                 // Opened by a page: its URL is not known yet, but it is not for typing into.
@@ -551,8 +594,10 @@ impl BrowserApp {
                 }
             }
             BrowserEvent::Cursor { tab, cursor } => {
-                if let (true, Some(app)) = (self.is_active(tab), self.app.upgrade()) {
-                    app.global::<WebviewLogic>().set_cursor(cursor.into());
+                if self.is_active(tab) {
+                    if let Some(w) = self.webview() {
+                        w.set_cursor(cursor.into());
+                    }
                 }
             }
             BrowserEvent::Dialog { tab, dialog } => self.queue_dialog(tab, dialog),
@@ -661,8 +706,8 @@ impl BrowserApp {
         self.close_find();
         self.dismiss_popup();
         self.set_ime_field(None);
-        if let Some(app) = self.app.upgrade() {
-            app.global::<WebviewLogic>().set_cursor("default".into());
+        if let Some(w) = self.webview() {
+            w.set_cursor("default".into());
         }
         self.with_engine(|engine| engine.activate_tab(tab));
         for i in 0..self.tabs.row_count() {
@@ -677,12 +722,12 @@ impl BrowserApp {
         self.sync_active(true);
         self.refresh_dialog();
 
-        if let Some(app) = self.app.upgrade() {
-            let row = self.tabs.row_data(index).expect("row in range");
+        let row = self.tabs.row_data(index).expect("row in range");
+        if let Some(browser) = self.browser() {
             if address_if_blank && input::display_url(row.url.as_str()).is_empty() {
-                app.invoke_focus_address();
+                browser.invoke_focus_address();
             } else {
-                app.invoke_focus_content();
+                browser.invoke_focus_content();
             }
         }
     }
@@ -744,8 +789,8 @@ impl BrowserApp {
         let url = input::resolve(text, &self.settings.borrow().search_url);
         self.with_engine(|engine| engine.load_url(&url));
         self.clear_suggestions();
-        if let Some(app) = self.app.upgrade() {
-            app.invoke_focus_content();
+        if let Some(browser) = self.browser() {
+            browser.invoke_focus_content();
         }
     }
 
@@ -769,10 +814,9 @@ impl BrowserApp {
             }
         }
         self.sync_active(false);
-        if let Some(app) = self.app.upgrade() {
-            let logic = app.global::<BrowserLogic>();
-            if logic.get_bookmarks_open() {
-                let filter = logic.get_bookmarks_filter();
+        if let Some(browser) = self.browser() {
+            if browser.get_bookmarks_open() {
+                let filter = browser.get_bookmarks_filter();
                 self.populate_bookmarks(filter.as_str());
             }
         }
@@ -809,10 +853,9 @@ impl BrowserApp {
     }
 
     fn set_suggestions(&self, suggestions: Vec<SuggestionInfo>) {
-        if let Some(app) = self.app.upgrade() {
-            let logic = app.global::<BrowserLogic>();
-            logic.set_suggestions(ModelRc::new(VecModel::from(suggestions)));
-            logic.set_suggestion_index(-1);
+        if let Some(browser) = self.browser() {
+            browser.set_suggestions(ModelRc::new(VecModel::from(suggestions)));
+            browser.set_suggestion_index(-1);
         }
     }
 
@@ -822,33 +865,32 @@ impl BrowserApp {
     fn handle_shortcut(&self, event: &slint::language::KeyEvent) -> bool {
         // Escape in the address bar abandons the edit and returns to the page.
         if event.text == SharedString::from(Key::Escape) {
-            let Some(app) = self.app.upgrade() else {
+            let Some(browser) = self.browser() else {
                 return false;
             };
-            let logic = app.global::<BrowserLogic>();
-            if logic.get_bookmarks_open() {
+            if browser.get_bookmarks_open() {
                 self.close_bookmarks();
                 return true;
             }
-            if logic.get_history_open() {
+            if browser.get_history_open() {
                 self.close_history();
                 return true;
             }
-            if logic.get_settings_open() {
+            if browser.get_settings_open() {
                 self.close_settings();
                 return true;
             }
-            if logic.get_menu_visible() {
+            if browser.get_menu_visible() {
                 self.menu_dismiss();
                 return true;
             }
-            if logic.get_address_focused() {
+            if browser.get_address_focused() {
                 self.clear_suggestions();
                 self.sync_active(true);
-                app.invoke_focus_content();
+                browser.invoke_focus_content();
                 return true;
             }
-            if logic.get_find_focused() {
+            if browser.get_find_focused() {
                 self.close_find();
                 return true;
             }
@@ -873,8 +915,8 @@ impl BrowserApp {
             }
             Shortcut::ReopenClosedTab => self.reopen_closed_tab(),
             Shortcut::FocusAddress => {
-                if let Some(app) = self.app.upgrade() {
-                    app.invoke_focus_address();
+                if let Some(browser) = self.browser() {
+                    browser.invoke_focus_address();
                 }
             }
             Shortcut::ToggleBookmark => self.toggle_bookmark(),
@@ -907,24 +949,22 @@ impl BrowserApp {
 
     /// A text field in the page gained (`Some`) or lost (`None`) focus.
     fn set_ime_field(&self, field: Option<DeviceRect>) {
-        let Some(app) = self.app.upgrade() else {
-            return;
-        };
-        let logic = app.global::<WebviewLogic>();
-        match field {
-            Some(area) => {
-                // The engine reports device pixels; the UI works in logical ones.
-                let scale = app.window().scale_factor();
-                logic.set_ime_x(area.x / scale);
-                logic.set_ime_y(area.y / scale);
-                logic.set_ime_width(area.width / scale);
-                logic.set_ime_height(area.height / scale);
-                logic.set_ime_active(true);
-            }
-            None => {
-                logic.set_ime_active(false);
-                if self.ime.borrow_mut().reset() {
-                    self.with_engine(|engine| engine.ime_dismiss());
+        if let Some(webview) = self.webview() {
+            match field {
+                Some(area) => {
+                    // The engine reports device pixels; the UI works in logical ones.
+                    let scale = self.host.scale_factor();
+                    webview.set_ime_x(area.x / scale);
+                    webview.set_ime_y(area.y / scale);
+                    webview.set_ime_width(area.width / scale);
+                    webview.set_ime_height(area.height / scale);
+                    webview.set_ime_active(true);
+                }
+                None => {
+                    webview.set_ime_active(false);
+                    if self.ime.borrow_mut().reset() {
+                        self.with_engine(|engine| engine.ime_dismiss());
+                    }
                 }
             }
         }
@@ -983,43 +1023,40 @@ impl BrowserApp {
     // -- Find in page ---------------------------------------------------------------
 
     fn open_find(&self) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
-        logic.set_find_open(true);
+        browser.set_find_open(true);
         // The bar only becomes visible, hence focusable, once this change has been applied.
-        let window = self.app.clone();
+        let weak_browser = self.browser.clone();
         slint::Timer::single_shot(Duration::ZERO, move || {
-            if let Some(app) = window.upgrade() {
-                app.invoke_focus_find();
+            if let Some(browser) = weak_browser.upgrade() {
+                browser.invoke_focus_find();
             }
         });
-        let query = logic.get_find_text();
+        let query = browser.get_find_text();
         if !query.is_empty() {
             self.find_search(query.as_str());
         }
     }
 
     fn close_find(&self) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
-        if !logic.get_find_open() {
+        if !browser.get_find_open() {
             return;
         }
-        logic.set_find_open(false);
-        logic.set_find_status(SharedString::new());
+        browser.set_find_open(false);
+        browser.set_find_status(SharedString::new());
         self.run_find(FindCommand::Clear);
-        app.invoke_focus_content();
+        browser.invoke_focus_content();
     }
 
     fn find_search(&self, query: &str) {
         if query.is_empty() {
-            if let Some(app) = self.app.upgrade() {
-                app.global::<BrowserLogic>()
-                    .set_find_status(SharedString::new());
+            if let Some(browser) = self.browser() {
+                browser.set_find_status(SharedString::new());
             }
             self.run_find(FindCommand::Clear);
             return;
@@ -1034,11 +1071,8 @@ impl BrowserApp {
 
     /// Next/previous match; opens the bar first if it is closed.
     fn find_step(&self, forward: bool) {
-        let open = self
-            .app
-            .upgrade()
-            .is_some_and(|app| app.global::<BrowserLogic>().get_find_open());
-        if !open {
+        let is_open = self.browser().map_or(false, |b| b.get_find_open());
+        if !is_open {
             self.open_find();
             return;
         }
@@ -1069,14 +1103,15 @@ impl BrowserApp {
     }
 
     fn show_find_status(&self, answer: Option<String>) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
         let text = match answer {
             // The script could not run (page still loading, …): show nothing.
             None => String::new(),
-            _ if !logic.get_find_open() || logic.get_find_text().is_empty() => String::new(),
+            _ if !browser.get_find_open() || browser.get_find_text().is_empty() => {
+                String::new()
+            }
             Some(answer) => {
                 let status = find::parse_status(&answer);
                 if status.total == 0 {
@@ -1086,7 +1121,7 @@ impl BrowserApp {
                 }
             }
         };
-        logic.set_find_status(text.into());
+        browser.set_find_status(text.into());
     }
 
     // -- Questions from the page ------------------------------------------------------
@@ -1097,10 +1132,7 @@ impl BrowserApp {
 
     fn queue_dialog(&self, tab: TabId, dialog: PageDialog) {
         self.dialogs.borrow_mut().push((tab, dialog));
-        let showing = self
-            .app
-            .upgrade()
-            .is_some_and(|app| app.global::<BrowserLogic>().get_dialog_visible());
+        let showing = self.browser().map_or(false, |b| b.get_dialog_visible());
         if !showing {
             self.refresh_dialog();
         }
@@ -1108,10 +1140,9 @@ impl BrowserApp {
 
     /// Shows the oldest question asked by the active tab, or hides the dialog if there is none.
     fn refresh_dialog(&self) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
         let active = self.active_tab_id();
         // (kind, title, message, initial text)
         let front = self
@@ -1135,30 +1166,29 @@ impl BrowserApp {
                 )
             });
         let Some((kind, title, message, initial)) = front else {
-            logic.set_dialog_visible(false);
+            browser.set_dialog_visible(false);
             return;
         };
-        logic.set_dialog_kind(kind);
-        logic.set_dialog_title(title.into());
-        logic.set_dialog_message(message.into());
-        logic.set_dialog_input(initial.into());
-        logic.set_dialog_password(SharedString::new());
-        logic.set_dialog_visible(true);
+        browser.set_dialog_kind(kind);
+        browser.set_dialog_title(title.into());
+        browser.set_dialog_message(message.into());
+        browser.set_dialog_input(initial.into());
+        browser.set_dialog_password(SharedString::new());
+        browser.set_dialog_visible(true);
         // The dialog only becomes visible, hence focusable, once this change has been applied.
-        let window = self.app.clone();
+        let weak_browser = self.browser.clone();
         slint::Timer::single_shot(Duration::ZERO, move || {
-            if let Some(app) = window.upgrade() {
-                app.invoke_focus_dialog();
+            if let Some(browser) = weak_browser.upgrade() {
+                browser.invoke_focus_dialog();
             }
         });
     }
 
     /// OK / Allow / Sign in (`accept`) or Cancel / Deny for the dialog on screen.
     fn answer_dialog(&self, accept: bool) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
         let active = self.active_tab_id();
         let dialog = {
             let mut dialogs = self.dialogs.borrow_mut();
@@ -1166,21 +1196,21 @@ impl BrowserApp {
             position.map(|position| dialogs.remove(position).1)
         };
         let Some(dialog) = dialog else {
-            logic.set_dialog_visible(false);
+            browser.set_dialog_visible(false);
             return;
         };
-        let input = logic.get_dialog_input();
-        let password = logic.get_dialog_password();
+        let input = browser.get_dialog_input();
+        let password = browser.get_dialog_password();
         // Answered with no borrow held: the engine may react by raising new events.
         if accept {
             dialog.accept(input.as_str(), password.as_str());
         } else {
             dialog.cancel();
         }
-        logic.set_dialog_password(SharedString::new());
+        browser.set_dialog_password(SharedString::new());
         self.refresh_dialog();
-        if !logic.get_dialog_visible() {
-            app.invoke_focus_content();
+        if !browser.get_dialog_visible() {
+            browser.invoke_focus_content();
         }
     }
 
@@ -1265,7 +1295,7 @@ impl BrowserApp {
 
     fn show_popup(&self, rows: Vec<MenuRow>, x: f32, y: f32, min_width: f32, popup: Popup) {
         self.dismiss_popup();
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
         // Rows are 28px (9px for separators) plus 4px padding above and below.
@@ -1275,12 +1305,11 @@ impl BrowserApp {
                 .map(|row| if row.separator { 9.0 } else { 28.0 })
                 .sum::<f32>();
         self.menu_rows.set_vec(rows);
-        let logic = app.global::<BrowserLogic>();
-        logic.set_menu_x(x);
-        logic.set_menu_y(y);
-        logic.set_menu_width(min_width);
-        logic.set_menu_height(height);
-        logic.set_menu_visible(true);
+        browser.set_menu_x(x);
+        browser.set_menu_y(y);
+        browser.set_menu_width(min_width);
+        browser.set_menu_height(height);
+        browser.set_menu_visible(true);
         *self.popup.borrow_mut() = Some(popup);
     }
 
@@ -1345,14 +1374,14 @@ impl BrowserApp {
     }
 
     fn hide_popup(&self) {
-        if let Some(app) = self.app.upgrade() {
-            app.global::<BrowserLogic>().set_menu_visible(false);
+        if let Some(browser) = self.browser() {
+            browser.set_menu_visible(false);
         }
     }
 
     fn focus_page(&self) {
-        if let Some(app) = self.app.upgrade() {
-            app.invoke_focus_content();
+        if let Some(browser) = self.browser() {
+            browser.invoke_focus_content();
         }
     }
 
@@ -1369,9 +1398,7 @@ impl BrowserApp {
     }
 
     fn scale_factor(&self) -> f32 {
-        self.app
-            .upgrade()
-            .map_or(1.0, |app| app.window().scale_factor())
+        self.host.scale_factor()
     }
 
     /// Edits a tab's entry in `tab_list`, mirrors it to `tabs`, and refreshes the toolbar
@@ -1394,73 +1421,67 @@ impl BrowserApp {
     /// Mirrors the active tab into the toolbar, address bar and window title.
     /// The address is left alone while the user is typing unless `force_address`.
     fn sync_active(&self, force_address: bool) {
-        let Some(app) = self.app.upgrade() else {
-            return;
-        };
-        let logic = app.global::<BrowserLogic>();
         let active_entry = self.tab_list.borrow().active().cloned();
         let Some(entry) = active_entry else {
             return;
         };
-        logic.set_can_go_back(entry.can_go_back);
-        logic.set_can_go_forward(entry.can_go_forward);
-        logic.set_loading(entry.loading);
+        let Some(browser) = self.browser() else {
+            return;
+        };
+        browser.set_can_go_back(entry.can_go_back);
+        browser.set_can_go_forward(entry.can_go_forward);
+        browser.set_loading(entry.loading);
         let page_zoom = self
             .engine
             .borrow()
             .as_ref()
             .map_or(zoom::DEFAULT, |engine| engine.zoom());
-        logic.set_zoom_percent(zoom::percent(page_zoom));
-        logic.set_bookmarked(self.bookmarks.borrow().contains(&entry.url));
-        logic.set_window_title(if entry.title.is_empty() {
+        browser.set_zoom_percent(zoom::percent(page_zoom));
+        browser.set_bookmarked(self.bookmarks.borrow().contains(&entry.url));
+        browser.set_window_title(if entry.title.is_empty() {
             "Nitium".into()
         } else {
             format!("{} — Nitium", entry.title).into()
         });
-        if force_address || !logic.get_address_focused() {
-            logic.set_address(input::display_url(&entry.url).into());
+        if force_address || !browser.get_address_focused() {
+            browser.set_address(input::display_url(&entry.url).into());
         }
     }
 
     // -- Settings ------------------------------------------------------------
 
     fn open_settings(&self) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
         let settings = self.settings.borrow();
-        logic.set_settings_home_url(settings.home_url.as_str().into());
-        logic.set_settings_search_url(settings.search_url.as_str().into());
-        logic.set_settings_search_preset(settings.search_preset_index().unwrap_or(6) as i32);
-        logic.set_settings_restore_session(settings.restore_session);
-        logic.set_settings_theme(settings.theme.as_index() as i32);
-        logic.set_settings_theme_preset(settings.theme_preset.as_str().into());
-        logic.set_settings_accent_color(
+        browser.set_settings_home_url(settings.home_url.as_str().into());
+        browser.set_settings_search_url(settings.search_url.as_str().into());
+        browser.set_settings_search_preset(settings.search_preset_index().unwrap_or(6) as i32);
+        browser.set_settings_restore_session(settings.restore_session);
+        browser.set_settings_theme(settings.theme.as_index() as i32);
+        browser.set_settings_theme_preset(settings.theme_preset.as_str().into());
+        browser.set_settings_accent_color(
             settings
                 .accent_color
                 .as_deref()
                 .unwrap_or("default")
                 .into(),
         );
-        logic.set_settings_corner_radius(settings.corner_radius.as_str().into());
-        logic.set_settings_status("".into());
-        logic.set_settings_open(true);
+        browser.set_settings_corner_radius(settings.corner_radius.as_str().into());
+        browser.set_settings_status("".into());
+        browser.set_settings_open(true);
     }
 
     fn close_settings(&self) {
-        let Some(app) = self.app.upgrade() else {
-            return;
-        };
-        app.global::<BrowserLogic>().set_settings_open(false);
+        if let Some(browser) = self.browser() {
+            browser.set_settings_open(false);
+        }
     }
 
     fn toggle_settings(&self) {
-        let Some(app) = self.app.upgrade() else {
-            return;
-        };
-        let logic = app.global::<BrowserLogic>();
-        if logic.get_settings_open() {
+        let is_open = self.browser().map_or(false, |b| b.get_settings_open());
+        if is_open {
             self.close_settings();
         } else {
             self.open_settings();
@@ -1468,15 +1489,14 @@ impl BrowserApp {
     }
 
     fn select_search_preset(&self, index: usize) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
         if let Some(preset) = SEARCH_PRESETS.get(index) {
-            logic.set_settings_search_url(preset.url_template.into());
-            logic.set_settings_search_preset(index as i32);
+            browser.set_settings_search_url(preset.url_template.into());
+            browser.set_settings_search_preset(index as i32);
         } else {
-            logic.set_settings_search_preset(6); // Custom
+            browser.set_settings_search_preset(6); // Custom
         }
     }
 
@@ -1511,8 +1531,8 @@ impl BrowserApp {
             }
         }
 
-        let is_dark = if let Some(app) = self.app.upgrade() {
-            crate::theme::apply_theme(&app, &settings, true)
+        let is_dark = if let Some(tokens) = self.tokens() {
+            crate::theme::apply_theme(&tokens, &settings, true)
         } else {
             settings.theme == ThemeMode::Dark
         };
@@ -1520,8 +1540,8 @@ impl BrowserApp {
         drop(settings);
         self.with_engine(|engine| engine.set_theme(is_dark));
 
-        if let Some(app) = self.app.upgrade() {
-            app.global::<BrowserLogic>().set_settings_status("Settings saved.".into());
+        if let Some(browser) = self.browser() {
+            browser.set_settings_status("Settings saved.".into());
         }
     }
 
@@ -1533,11 +1553,10 @@ impl BrowserApp {
                 eprintln!("nitium: cannot save history: {err}");
             }
         }
-        if let Some(app) = self.app.upgrade() {
-            let logic = app.global::<BrowserLogic>();
-            logic.set_settings_status("Browsing history cleared.".into());
-            if logic.get_history_open() {
-                let filter = logic.get_history_filter();
+        if let Some(browser) = self.browser() {
+            browser.set_settings_status("Browsing history cleared.".into());
+            if browser.get_history_open() {
+                let filter = browser.get_history_filter();
                 self.populate_history(filter.as_str());
             }
         }
@@ -1551,11 +1570,10 @@ impl BrowserApp {
             }
         }
         self.sync_active(false);
-        if let Some(app) = self.app.upgrade() {
-            let logic = app.global::<BrowserLogic>();
-            logic.set_settings_status("Bookmarks cleared.".into());
-            if logic.get_bookmarks_open() {
-                let filter = logic.get_bookmarks_filter();
+        if let Some(browser) = self.browser() {
+            browser.set_settings_status("Bookmarks cleared.".into());
+            if browser.get_bookmarks_open() {
+                let filter = browser.get_bookmarks_filter();
                 self.populate_bookmarks(filter.as_str());
             }
         }
@@ -1563,36 +1581,31 @@ impl BrowserApp {
 
     fn clear_browsing_data(&self) {
         self.with_engine(|engine| engine.clear_browsing_data());
-        if let Some(app) = self.app.upgrade() {
-            app.global::<BrowserLogic>().set_settings_status("Cookies and cache cleared.".into());
+        if let Some(browser) = self.browser() {
+            browser.set_settings_status("Cookies and cache cleared.".into());
         }
     }
 
     // -- Bookmarks overlay ---------------------------------------------------
 
     fn open_bookmarks(&self) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
-        logic.set_bookmarks_filter("".into());
+        browser.set_bookmarks_filter("".into());
         self.populate_bookmarks("");
-        logic.set_bookmarks_open(true);
+        browser.set_bookmarks_open(true);
     }
 
     fn close_bookmarks(&self) {
-        let Some(app) = self.app.upgrade() else {
-            return;
-        };
-        app.global::<BrowserLogic>().set_bookmarks_open(false);
+        if let Some(browser) = self.browser() {
+            browser.set_bookmarks_open(false);
+        }
     }
 
     fn toggle_bookmarks(&self) {
-        let Some(app) = self.app.upgrade() else {
-            return;
-        };
-        let logic = app.global::<BrowserLogic>();
-        if logic.get_bookmarks_open() {
+        let is_open = self.browser().map_or(false, |b| b.get_bookmarks_open());
+        if is_open {
             self.close_bookmarks();
         } else {
             self.open_bookmarks();
@@ -1604,10 +1617,9 @@ impl BrowserApp {
     }
 
     fn populate_bookmarks(&self, query: &str) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
         let b = self.bookmarks.borrow();
         let items: Vec<BookmarkItem> = if query.trim().is_empty() {
             b.items()
@@ -1626,7 +1638,7 @@ impl BrowserApp {
                 })
                 .collect()
         };
-        logic.set_bookmarks_list(ModelRc::new(VecModel::from(items)));
+        browser.set_bookmarks_list(ModelRc::new(VecModel::from(items)));
     }
 
     fn open_bookmark(&self, url: &str) {
@@ -1647,8 +1659,8 @@ impl BrowserApp {
             }
         }
         self.sync_active(false);
-        if let Some(app) = self.app.upgrade() {
-            let filter = app.global::<BrowserLogic>().get_bookmarks_filter();
+        if let Some(browser) = self.browser() {
+            let filter = browser.get_bookmarks_filter();
             self.populate_bookmarks(filter.as_str());
         }
     }
@@ -1656,28 +1668,23 @@ impl BrowserApp {
     // -- History overlay -----------------------------------------------------
 
     fn open_history(&self) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
-        logic.set_history_filter("".into());
+        browser.set_history_filter("".into());
         self.populate_history("");
-        logic.set_history_open(true);
+        browser.set_history_open(true);
     }
 
     fn close_history(&self) {
-        let Some(app) = self.app.upgrade() else {
-            return;
-        };
-        app.global::<BrowserLogic>().set_history_open(false);
+        if let Some(browser) = self.browser() {
+            browser.set_history_open(false);
+        }
     }
 
     fn toggle_history(&self) {
-        let Some(app) = self.app.upgrade() else {
-            return;
-        };
-        let logic = app.global::<BrowserLogic>();
-        if logic.get_history_open() {
+        let is_open = self.browser().map_or(false, |b| b.get_history_open());
+        if is_open {
             self.close_history();
         } else {
             self.open_history();
@@ -1689,10 +1696,9 @@ impl BrowserApp {
     }
 
     fn populate_history(&self, query: &str) {
-        let Some(app) = self.app.upgrade() else {
+        let Some(browser) = self.browser() else {
             return;
         };
-        let logic = app.global::<BrowserLogic>();
         let h = self.history.borrow();
         let items: Vec<HistoryItem> = if query.trim().is_empty() {
             h.recent(200)
@@ -1715,7 +1721,7 @@ impl BrowserApp {
                 })
                 .collect()
         };
-        logic.set_history_list(ModelRc::new(VecModel::from(items)));
+        browser.set_history_list(ModelRc::new(VecModel::from(items)));
     }
 
     fn open_history_item(&self, url: &str) {
@@ -1731,16 +1737,16 @@ impl BrowserApp {
     fn remove_history_item(&self, url: &str) {
         self.history.borrow_mut().remove(url);
         self.history_dirty.set(true);
-        if let Some(app) = self.app.upgrade() {
-            let filter = app.global::<BrowserLogic>().get_history_filter();
+        if let Some(browser) = self.browser() {
+            let filter = browser.get_history_filter();
             self.populate_history(filter.as_str());
         }
     }
 
     fn clear_all_history(&self) {
         self.clear_history();
-        if let Some(app) = self.app.upgrade() {
-            let filter = app.global::<BrowserLogic>().get_history_filter();
+        if let Some(browser) = self.browser() {
+            let filter = browser.get_history_filter();
             self.populate_history(filter.as_str());
         }
     }
