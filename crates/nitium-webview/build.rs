@@ -5,9 +5,6 @@ use std::path::Path;
 use gl_generator::{Api, Fallbacks, Profile, Registry, StructGenerator};
 
 fn main() {
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    println!("cargo:UI_DIR={manifest_dir}/ui");
-    println!("cargo:rerun-if-changed=ui");
     println!("cargo:rerun-if-changed=build.rs");
 
     let out = env::var("OUT_DIR").unwrap();

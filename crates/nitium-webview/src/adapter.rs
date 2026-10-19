@@ -1,7 +1,7 @@
 // Copyright © SixtyFPS GmbH <info@slint.dev>
 // SPDX-License-Identifier: MIT
 
-use std::cell::{Ref, RefCell, RefMut};
+use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::rc::{Rc, Weak};
 
 use servo::{EmbedderControlId, Servo, WebView};
@@ -9,6 +9,7 @@ use smol::channel::{Receiver, Sender};
 
 use slint::wgpu_30::wgpu;
 
+use crate::controls::ControlId;
 use crate::event::{BrowserEvent, TabId};
 use crate::rendering_context::ServoRenderingAdapter;
 
@@ -57,6 +58,9 @@ pub struct SlintServoAdapter {
     tabs: RefCell<Tabs>,
     /// The text field the page currently wants the input method for, if any.
     ime_control: RefCell<Option<EmbedderControlId>>,
+    /// Maps Servo's `EmbedderControlId` to our engine-agnostic `ControlId`.
+    controls: RefCell<Vec<(EmbedderControlId, ControlId)>>,
+    next_control_id: Cell<u64>,
     on_event: Box<dyn Fn(BrowserEvent)>,
 }
 
@@ -87,6 +91,8 @@ impl SlintServoAdapter {
             }),
             tabs: RefCell::new(Tabs::default()),
             ime_control: RefCell::new(None),
+            controls: RefCell::new(Vec::new()),
+            next_control_id: Cell::new(1),
             on_event: Box::new(on_event),
         }
     }
@@ -146,7 +152,7 @@ impl SlintServoAdapter {
         Some(rendering_adapter.current_framebuffer_as_image())
     }
 
-    // -- Input method ---------------------------------------------------------
+    // -- Input method & controls ----------------------------------------------
 
     pub fn set_ime_control(&self, control: Option<EmbedderControlId>) {
         *self.ime_control.borrow_mut() = control;
@@ -154,6 +160,20 @@ impl SlintServoAdapter {
 
     pub fn ime_control(&self) -> Option<EmbedderControlId> {
         *self.ime_control.borrow()
+    }
+
+    pub fn register_control(&self, servo_id: EmbedderControlId) -> ControlId {
+        let raw = self.next_control_id.get();
+        self.next_control_id.set(raw + 1);
+        let id = ControlId(raw);
+        self.controls.borrow_mut().push((servo_id, id));
+        id
+    }
+
+    pub fn take_control(&self, servo_id: EmbedderControlId) -> Option<ControlId> {
+        let mut controls = self.controls.borrow_mut();
+        let index = controls.iter().position(|(sid, _)| *sid == servo_id)?;
+        Some(controls.swap_remove(index).1)
     }
 
     // -- Tabs ---------------------------------------------------------------

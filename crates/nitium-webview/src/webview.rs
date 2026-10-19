@@ -101,8 +101,12 @@ impl ServoBrowser {
                 .build()
         };
         webview.notify_theme_change(self.theme());
+        let should_activate = activate || self.adapter.active_tab().is_none();
+        if !should_activate {
+            webview.set_focused(false);
+        }
         let tab = self.adapter.register_tab(webview);
-        if activate || self.adapter.active_tab().is_none() {
+        if should_activate {
             self.activate_tab(tab);
         }
         tab
@@ -124,12 +128,12 @@ impl ServoBrowser {
             if previous.id() == next.id() {
                 return;
             }
-            previous.blur();
+            previous.set_focused(false);
             previous.hide();
         }
         self.adapter.set_active_tab(Some(tab));
         next.show();
-        next.focus();
+        next.set_focused(true);
     }
 
     pub fn active_tab(&self) -> Option<TabId> {
@@ -300,5 +304,75 @@ impl ServoBrowser {
             }
         })
         .expect("Failed to spawn servo event loop task");
+    }
+}
+
+impl nitium_shell::WebEngine for ServoBrowser {
+    fn open_tab(&self, url: &str, activate: bool) -> TabId {
+        Self::open_tab(self, url, activate)
+    }
+
+    fn close_tab(&self, tab: TabId) {
+        Self::close_tab(self, tab)
+    }
+
+    fn activate_tab(&self, tab: TabId) {
+        Self::activate_tab(self, tab)
+    }
+
+    fn load_url(&self, url: &str) {
+        Self::load_url(self, url)
+    }
+
+    fn go_back(&self) {
+        Self::go_back(self)
+    }
+
+    fn go_forward(&self) {
+        Self::go_forward(self)
+    }
+
+    fn reload(&self) {
+        Self::reload(self)
+    }
+
+    fn set_theme(&self, dark_mode: bool) {
+        Self::set_theme(self, dark_mode)
+    }
+
+    fn resize(&self, physical_width: f32, physical_height: f32, scale_factor: f32) {
+        Self::resize(self, physical_width, physical_height, scale_factor)
+    }
+
+    fn scroll(&self, initial_x: f32, initial_y: f32, delta_x: f32, delta_y: f32) {
+        Self::scroll(self, initial_x, initial_y, delta_x, delta_y)
+    }
+
+    fn handle_pointer(&self, event: &PointerEvent, x: f32, y: f32) {
+        Self::handle_pointer(self, event, x, y)
+    }
+
+    fn handle_key_event(&self, event: &KeyEvent, is_pressed: bool) {
+        Self::handle_key_event(self, event, is_pressed)
+    }
+
+    fn ime_composition(&self, phase: CompositionPhase, data: &str) {
+        Self::ime_composition(self, phase, data)
+    }
+
+    fn ime_dismiss(&self) {
+        Self::ime_dismiss(self)
+    }
+
+    fn set_zoom(&self, zoom: f32) {
+        Self::set_zoom(self, zoom)
+    }
+
+    fn zoom(&self) -> f32 {
+        Self::zoom(self)
+    }
+
+    fn evaluate_script(&self, script: &str, on_result: Box<dyn FnOnce(Option<String>)>) {
+        Self::evaluate_script(self, script, on_result)
     }
 }

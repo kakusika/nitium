@@ -9,7 +9,10 @@ use servo::{
 };
 
 use crate::adapter::SlintServoAdapter;
-use crate::controls::{ControlId, PageDialog, PageMenu, PageSelect, device_rect};
+use crate::controls::{
+    device_rect, page_dialog_from_authentication, page_dialog_from_permission,
+    page_dialog_from_simple, page_menu_from_servo, page_select_from_servo,
+};
 use crate::event::BrowserEvent;
 
 /// Servo delegate shared by every tab. Translates engine callbacks into [`BrowserEvent`]s.
@@ -134,32 +137,35 @@ impl WebViewDelegate for ServoDelegate {
     }
 
     fn show_embedder_control(&self, webview: WebView, control: EmbedderControl) {
-        let id = control.id();
+        let servo_id = control.id();
         let Some(tab) = self.adapter.tab_id_of(&webview) else {
             return;
         };
         match control {
             EmbedderControl::InputMethod(input_method) => {
-                self.adapter.set_ime_control(Some(id));
+                self.adapter.set_ime_control(Some(servo_id));
                 self.adapter.emit(BrowserEvent::InputMethod {
                     tab,
                     field: Some(device_rect(input_method.position())),
                 });
             }
             EmbedderControl::SimpleDialog(dialog) => {
-                let dialog = PageDialog::from_simple(id, dialog, origin_of(&webview));
+                let id = self.adapter.register_control(servo_id);
+                let dialog = page_dialog_from_simple(id, dialog, origin_of(&webview));
                 self.adapter.emit(BrowserEvent::Dialog { tab, dialog });
             }
             EmbedderControl::ContextMenu(menu) => {
+                let id = self.adapter.register_control(servo_id);
                 self.adapter.emit(BrowserEvent::ContextMenu {
                     tab,
-                    menu: PageMenu::new(menu),
+                    menu: page_menu_from_servo(id, menu),
                 });
             }
             EmbedderControl::SelectElement(select) => {
+                let id = self.adapter.register_control(servo_id);
                 self.adapter.emit(BrowserEvent::SelectPopup {
                     tab,
-                    select: PageSelect::new(select),
+                    select: page_select_from_servo(id, select),
                 });
             }
             // Color and file pickers are not supported yet; dropping them tells the
@@ -177,17 +183,16 @@ impl WebViewDelegate for ServoDelegate {
             self.adapter.emit(BrowserEvent::InputMethod { tab, field: None });
             return;
         }
-        self.adapter.emit(BrowserEvent::ControlHidden {
-            tab,
-            id: ControlId(control_id),
-        });
+        if let Some(id) = self.adapter.take_control(control_id) {
+            self.adapter.emit(BrowserEvent::ControlHidden { tab, id });
+        }
     }
 
     fn request_permission(&self, webview: WebView, request: PermissionRequest) {
         let Some(tab) = self.adapter.tab_id_of(&webview) else {
             return;
         };
-        let dialog = PageDialog::from_permission(request, origin_of(&webview));
+        let dialog = page_dialog_from_permission(request, origin_of(&webview));
         self.adapter.emit(BrowserEvent::Dialog { tab, dialog });
     }
 
@@ -195,7 +200,7 @@ impl WebViewDelegate for ServoDelegate {
         let Some(tab) = self.adapter.tab_id_of(&webview) else {
             return;
         };
-        let dialog = PageDialog::from_authentication(request);
+        let dialog = page_dialog_from_authentication(request);
         self.adapter.emit(BrowserEvent::Dialog { tab, dialog });
     }
 }

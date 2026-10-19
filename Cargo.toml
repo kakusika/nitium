@@ -1,21 +1,23 @@
 [workspace]
 resolver = "3"
 members = [
-  "apps/nitium",
+  "apps/desktop",
   "crates/nitium-core",
+  "crates/nitium-shell",
   "crates/nitium-webview",
 ]
-default-members = ["apps/nitium"]
+default-members = ["apps/desktop"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license-file = "LICENSE"
 publish = false
 
 [workspace.dependencies]
 nitium-core = { path = "crates/nitium-core" }
+nitium-shell = { path = "crates/nitium-shell" }
 nitium-webview = { path = "crates/nitium-webview" }
 
 #= Origiri Frameworks
@@ -28,14 +30,13 @@ origiri-theme = { git = "https://github.com/kakusika/origiri-frameworks.git" }
 origiri-viewport = { git = "https://github.com/kakusika/origiri-frameworks.git" }
 
 #= Servo & Webview
-servo = "0.5.0"
-surfman = { version = "0.13.0", features = ["chains"] }
+servo = "0.7.0"
+surfman = "0.14.0"
 glow = "0.17"
 gl = "0.14"
 gleam = "0.15"
 ash = "0.38"
 gl_generator = "0.14"
-content-security-policy = "=0.8.2"
 
 #= Slint
 slint = { version = "1.18", default-features = false, features = [
@@ -76,3 +77,11 @@ winit = "0.30"
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[patch.crates-io]
+# Slint 1.18's `i-slint-compiler` specifies `icu_properties = "2.2.0"`, which
+# conflicts with Servo 0.7's `mozjs_sys` (`icu_capi = "=2.1.2"` -> `icu_* ~2.1.1`).
+# Relaxing `icu_properties` to `"2.1"` allows Cargo to unify `icu_*` on 2.1.x
+# across Slint and Servo cleanly.
+i-slint-compiler = { path = "patches/i-slint-compiler" }
+

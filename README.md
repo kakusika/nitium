@@ -10,27 +10,29 @@ Nitium is a modern, responsive desktop web browser that embeds Mozilla's Servo b
 
 ## Workspace Layout
 
-- `apps/nitium` (`nitium`) -- Desktop web browser application.
-- `crates/nitium-core` (`nitium-core`) -- Servo-free browser logic (address input, settings, bookmarks, history, session, find, zoom, IME).
-- `crates/nitium-webview` (`nitium-webview`) -- Servo browser engine integration and Slint widget bindings.
+- `apps/desktop` (`nitium-desktop`) -- Desktop application binary wiring `nitium-shell` and `nitium-webview`.
+- `crates/nitium-core` (`nitium-core`) -- Pure Rust domain logic with zero Servo or Slint dependencies (address input, tabs, shortcuts, controls, settings, bookmarks, history, session, find, zoom, IME).
+- `crates/nitium-shell` (`nitium-shell`) -- Slint UI shell and `BrowserApp` state management (zero Servo dependency).
+- `crates/nitium-webview` (`nitium-webview`) -- Servo 0.7 browser engine integration and WGPU/Surfman rendering bridge.
 
 ## Building and Running
 
 ### Prerequisites
 
-- Rust stable (2024 edition, 1.85+)
+- Rust stable (2024 edition, 1.88+)
 - Wayland / X11 graphics libraries (`libxkbcommon`, `fontconfig`, `wayland`, `vulkan-loader`, `mesa`, `libGL`)
 - Or use Nix: `nix develop`
 
 ### Run Application
 
 ```bash
-cargo run -p nitium
+cargo run -p nitium-desktop
 ```
 
-### Run Tests
+### Fast Check & Tests (No Servo Build)
 
 ```bash
-cargo test -p nitium-core
+just check-fast
+just test-fast
 ```
 

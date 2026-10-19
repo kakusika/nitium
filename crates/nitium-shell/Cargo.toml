@@ -1,0 +1,19 @@
+[package]
+name = "nitium-shell"
+description = "Slint UI shell and application controller for Nitium (Servo-free)"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[dependencies]
+nitium-core = { workspace = true }
+origiri = { workspace = true }
+origiri-theme = { workspace = true }
+slint = { workspace = true }
+log = { workspace = true }
+
+[build-dependencies]
+origiri-build = { workspace = true }
+slint-build = { workspace = true }

@@ -28,9 +28,8 @@ All commits must follow the Conventional Commits format: `type(scope): descripti
 Use the affected app, crate, or feature as the scope:
 
 - **Apps**: `desktop`, `mobile`
-- **Core**: `core`, `fs`, `meta`, `selection`, `vault-cache`, `vault-index`
-- **Features**: `canvas`, `board`, `node-graph`, `timeline`, `explorer`, `link-graph`, `text-editor`, `table`, `painter`, `preview`, `settings`, `workspace`
-- **Extensions**: `comfyui`
+- **Crates**: `core`, `shell`, `webview`
+- **Features**: `tabs`, `bookmarks`, `history`, `session`, `settings`, `shortcuts`, `controls`, `find`, `zoom`, `ime`, `ui`
 - **Tooling / Infra**: `nix`, `deps`, `docs`
 
 > [!tip]
@@ -46,6 +45,6 @@ Keep commit logs clean and focused on technical changes.
 
 Before committing or submitting changes, ensure all checks pass:
 
-- `nix develop . --command cargo check --workspace`
+- `just check-fast` and `just test-fast` (or `nix develop . --command cargo check --workspace` when modifying `nitium-webview`)
 - `just docs-check`: Ensure documentation artifacts are up to date and valid.
 

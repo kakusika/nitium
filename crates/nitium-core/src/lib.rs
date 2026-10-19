@@ -4,6 +4,7 @@
 //! (`cargo test -p nitium-core`) without building the rendering engine.
 
 pub mod bookmarks;
+pub mod controls;
 pub mod find;
 pub mod history;
 pub mod ime;
@@ -11,7 +12,9 @@ pub mod input;
 pub mod profile;
 pub mod session;
 pub mod settings;
+pub mod shortcuts;
 pub mod storage;
+pub mod tabs;
 pub mod zoom;
 
 /// Seconds since the Unix epoch. Stores take the time as a parameter so tests stay deterministic.

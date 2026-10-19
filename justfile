@@ -6,13 +6,21 @@ default:
 
 # Run the Nitium browser application.
 run *args:
-    cargo run -p nitium -- {{args}}
+    cargo run -p nitium-desktop -- {{args}}
 
-# Type-check the workspace.
+# Type-check UI shell and core logic without building Servo.
+check-fast:
+    cargo check -p nitium-core -p nitium-shell
+
+# Run unit tests in core and shell without building Servo.
+test-fast:
+    cargo test -p nitium-core -p nitium-shell
+
+# Type-check the full workspace (including Servo).
 check:
     cargo check --workspace
 
-# Run tests across the workspace.
+# Run tests across the full workspace.
 test:
     cargo test --workspace
 
