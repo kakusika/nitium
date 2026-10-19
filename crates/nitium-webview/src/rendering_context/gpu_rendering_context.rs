@@ -24,10 +24,18 @@ pub struct GPURenderingContext {
     pub surfman_rendering_info: SurfmanRenderingContext,
     #[cfg(target_os = "windows")]
     pub d3d11_state: super::directx::D3D11SharedState,
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    pub vulkan_state: super::vulkan::VulkanSharedState,
 }
 
 impl Drop for GPURenderingContext {
     fn drop(&mut self) {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            let device = &self.surfman_rendering_info.device.borrow();
+            let mut context = self.surfman_rendering_info.context.borrow_mut();
+            self.vulkan_state.destroy(device, &mut context);
+        }
         let device = &mut self.surfman_rendering_info.device.borrow_mut();
         let context = &mut self.surfman_rendering_info.context.borrow_mut();
         let _ = self.swap_chain.destroy(device, context);
@@ -65,12 +73,17 @@ impl GPURenderingContext {
         #[cfg(target_os = "windows")]
         let d3d11_state = Self::init_d3d11_shared_state(&surfman_rendering_info.device.borrow())?;
 
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let vulkan_state = super::vulkan::VulkanSharedState::new();
+
         Ok(Self {
             swap_chain,
             size: Cell::new(size),
             surfman_rendering_info,
             #[cfg(target_os = "windows")]
             d3d11_state,
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            vulkan_state,
         })
     }
 

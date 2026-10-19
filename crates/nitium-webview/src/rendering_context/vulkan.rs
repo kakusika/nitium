@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 // cSpell: ignore blits DEXT Parameteriv
+use std::cell::RefCell;
+
 use ash::vk;
 use glow::HasContext;
+use winit::dpi::PhysicalSize;
 
 use crate::gl_bindings as gl;
-
 use gl::Gles2 as Gl;
-
 use slint::wgpu_30::wgpu::{self, hal};
 
 #[derive(thiserror::Error, Debug)]
@@ -27,30 +28,73 @@ pub enum VulkanTextureError {
     OpenGL(String),
 }
 
+/// Size-dependent Vulkan and OpenGL resources reused across frames.
+pub struct VulkanSizeDependentState {
+    pub vulkan_image: vk::Image,
+    pub vulkan_memory: vk::DeviceMemory,
+    pub gl_memory_object: u32,
+    pub gl_texture: glow::Texture,
+    pub gl_draw_framebuffer: glow::Framebuffer,
+    pub wgpu_texture: wgpu::Texture,
+    pub ash_device: ash::Device,
+    pub size: PhysicalSize<u32>,
+}
+
+impl VulkanSizeDependentState {
+    pub fn destroy(
+        self,
+        device: &surfman::Device,
+        context: &mut surfman::Context,
+        gl: &glow::Context,
+    ) {
+        let _ = device.make_context_current(context);
+        unsafe {
+            gl.delete_framebuffer(self.gl_draw_framebuffer);
+            gl.delete_texture(self.gl_texture);
+            let gl_with_extensions =
+                Gl::load_with(|function_name| device.get_proc_address(context, function_name));
+            gl_with_extensions.DeleteMemoryObjectsEXT(1, &self.gl_memory_object);
+            // Drop wgpu_texture first before destroying Vulkan image/memory
+            drop(self.wgpu_texture);
+            self.ash_device.destroy_image(self.vulkan_image, None);
+            self.ash_device.free_memory(self.vulkan_memory, None);
+        }
+    }
+}
+
+/// Shared Vulkan state owning size-dependent cached resources.
+pub struct VulkanSharedState {
+    pub size_dependent: RefCell<Option<VulkanSizeDependentState>>,
+}
+
+impl VulkanSharedState {
+    pub fn new() -> Self {
+        Self {
+            size_dependent: RefCell::new(None),
+        }
+    }
+
+    pub fn destroy(&self, device: &surfman::Device, context: &mut surfman::Context) {
+        if let Some(state) = self.size_dependent.borrow_mut().take() {
+            let gl = unsafe {
+                glow::Context::from_loader_function(|name| device.get_proc_address(context, name))
+            };
+            state.destroy(device, context, &gl);
+        }
+    }
+}
+
 impl super::GPURenderingContext {
-    /// Imports Vulkan surface as a WGPU texture for rendering on Linux.
-    /// Creates a Vulkan image with external memory, imports to OpenGL, blits content, then wraps as WGPU texture.
-    pub fn get_wgpu_texture_from_vulkan(
+    fn init_vulkan_size_dependent_state(
         &self,
+        device: &surfman::Device,
+        context: &surfman::Context,
         wgpu_device: &wgpu::Device,
-    ) -> Result<wgpu::Texture, VulkanTextureError> {
-        let device = &self.surfman_rendering_info.device.borrow();
-        let mut context = self.surfman_rendering_info.context.borrow_mut();
+        size: PhysicalSize<u32>,
+    ) -> Result<VulkanSizeDependentState, VulkanTextureError> {
+        let gl = &self.surfman_rendering_info.glow_gl;
 
-        let surface = device
-            .unbind_surface_from_context(&mut context)
-            .map_err(VulkanTextureError::Surfman)?
-            .ok_or(VulkanTextureError::NoSurface)?;
-
-        device
-            .make_context_current(&mut context)
-            .map_err(VulkanTextureError::Surfman)?;
-
-        let surface_info = device.surface_info(&surface);
-
-        let size = self.size.get();
-
-        let texture = unsafe {
+        unsafe {
             let hal_device = wgpu_device
                 .as_hal::<wgpu::wgc::api::Vulkan>()
                 .ok_or(VulkanTextureError::WgpuNotVulkan)?;
@@ -59,8 +103,7 @@ impl super::GPURenderingContext {
             let vulkan_device = &vulkan_ctx.ash_device;
             let vulkan_instance = &vulkan_ctx.raw_instance;
 
-            // Create Vulkan image with external memory for sharing with OpenGL
-
+            // 1. Create Vulkan image with external memory for sharing with OpenGL
             let mut external_memory_image_info = vk::ExternalMemoryImageCreateInfo::default()
                 .handle_types(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD);
 
@@ -84,8 +127,7 @@ impl super::GPURenderingContext {
                 None,
             )?;
 
-            // Allocate dedicated Vulkan memory and bind to the created image
-
+            // 2. Allocate dedicated Vulkan memory and bind to the created image
             let memory_requirements = vulkan_device.get_image_memory_requirements(vulkan_image);
             let memory_type_index = origiri_viewport::find_memory_type_index(
                 &vulkan_ctx.memory_properties,
@@ -111,8 +153,7 @@ impl super::GPURenderingContext {
 
             vulkan_device.bind_image_memory(vulkan_image, memory, 0)?;
 
-            // Export Vulkan memory as a file descriptor for OpenGL import
-
+            // 3. Export Vulkan memory as a file descriptor for OpenGL import
             let external_memory_fd_api =
                 ash::khr::external_memory_fd::Device::new(vulkan_instance, vulkan_device);
 
@@ -122,17 +163,12 @@ impl super::GPURenderingContext {
                     .handle_type(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD),
             )?;
 
-            // Import Vulkan memory into OpenGL using EXT_external_objects
-
-            let gl = &self.surfman_rendering_info.glow_gl;
-
+            // 4. Import Vulkan memory into OpenGL using EXT_external_objects
             let gl_with_extensions =
-                Gl::load_with(|function_name| device.get_proc_address(&context, function_name));
+                Gl::load_with(|function_name| device.get_proc_address(context, function_name));
 
             let mut memory_object = 0;
             gl_with_extensions.CreateMemoryObjectsEXT(1, &mut memory_object);
-            // We're using a dedicated allocation.
-            // todo: taken from https://bxt.rs/blog/fast-half-life-video-recording-with-vulkan/, not sure if required.
             gl_with_extensions.MemoryObjectParameterivEXT(
                 memory_object,
                 gl::DEDICATED_MEMORY_OBJECT_EXT,
@@ -144,9 +180,10 @@ impl super::GPURenderingContext {
                 gl::HANDLE_TYPE_OPAQUE_FD_EXT,
                 memory_handle,
             );
-            // Create a texture and bind it to the imported memory.
-            let texture = gl.create_texture().map_err(VulkanTextureError::OpenGL)?;
-            gl.bind_texture(gl::TEXTURE_2D, Some(texture));
+
+            // 5. Create GL texture bound to imported memory
+            let gl_texture = gl.create_texture().map_err(VulkanTextureError::OpenGL)?;
+            gl.bind_texture(gl::TEXTURE_2D, Some(gl_texture));
             gl_with_extensions.TexStorageMem2DEXT(
                 gl::TEXTURE_2D,
                 1,
@@ -157,53 +194,24 @@ impl super::GPURenderingContext {
                 0,
             );
 
-            // Blit Servo's framebuffer to the imported texture
-
-            let draw_framebuffer = gl
-                .create_framebuffer()
-                .map_err(VulkanTextureError::OpenGL)?;
-            let read_framebuffer = surface_info
-                .framebuffer_object
-                .ok_or(VulkanTextureError::NoFramebuffer)?;
-            // todo: tried using gl.named_framebuffer_texture instead but it errored.
+            // 6. Create GL draw framebuffer targeting this texture
+            let draw_framebuffer = gl.create_framebuffer().map_err(VulkanTextureError::OpenGL)?;
             gl.bind_framebuffer(gl::DRAW_FRAMEBUFFER, Some(draw_framebuffer));
             gl.framebuffer_texture_2d(
                 gl::DRAW_FRAMEBUFFER,
                 gl::COLOR_ATTACHMENT0,
                 gl::TEXTURE_2D,
-                Some(texture),
+                Some(gl_texture),
                 0,
             );
+            gl.bind_framebuffer(gl::DRAW_FRAMEBUFFER, None);
 
-            gl.bind_framebuffer(gl::READ_FRAMEBUFFER, Some(read_framebuffer));
-            gl.bind_framebuffer(gl::DRAW_FRAMEBUFFER, Some(draw_framebuffer));
-
-            gl.blit_framebuffer(
-                0,
-                0,
-                size.width as i32,
-                size.height as i32,
-                // Flip vertically - OpenGL origin is bottom-left, texture origin is top-left
-                0,
-                size.height as i32,
-                size.width as i32,
-                0,
-                gl::COLOR_BUFFER_BIT,
-                gl::NEAREST,
-            );
-            gl.flush();
-            // Delete all the opengl objects. Seems to be required to prevent memory leaks
-            // according to `amdgpu_top`.
-            gl.delete_framebuffer(draw_framebuffer);
-            gl.delete_texture(texture);
-            gl_with_extensions.DeleteMemoryObjectsEXT(1, &memory_object);
-
-            let vk_dev_for_drop = vulkan_device.clone();
-            wgpu_device.create_texture_from_hal::<wgpu::wgc::api::Vulkan>(
+            // 7. Wrap Vulkan image into WGPU texture
+            let wgpu_texture = wgpu_device.create_texture_from_hal::<wgpu::wgc::api::Vulkan>(
                 hal_device.texture_from_raw(
                     vulkan_image,
                     &hal::TextureDescriptor {
-                        label: None,
+                        label: Some("nitium_vulkan_shared_texture"),
                         size: wgpu::Extent3d {
                             width: size.width,
                             height: size.height,
@@ -217,16 +225,11 @@ impl super::GPURenderingContext {
                         view_formats: Vec::new(),
                         memory_flags: hal::MemoryFlags::empty(),
                     },
-                    Some(Box::new(move || {
-                        // Images aren't cleaned up by wgpu-hal if theres a drop callback set so do it manually
-                        vk_dev_for_drop.destroy_image(vulkan_image, None);
-                        // Free the memory
-                        vk_dev_for_drop.free_memory(memory, None);
-                    })),
+                    None,
                     hal::vulkan::TextureMemory::External,
                 ),
                 &wgpu::TextureDescriptor {
-                    label: None,
+                    label: Some("nitium_wgpu_vulkan_texture"),
                     size: wgpu::Extent3d {
                         width: size.width,
                         height: size.height,
@@ -240,12 +243,91 @@ impl super::GPURenderingContext {
                         | wgpu::TextureUsages::RENDER_ATTACHMENT,
                     view_formats: &[],
                 },
-                // UNINITIALIZED is the tracker state wgpu 29 implicitly assigned to hal-imported
-                // textures; it only seeds barrier tracking and does not cause a zero-init clear.
                 wgpu::TextureUses::UNINITIALIZED,
-            )
-        };
+            );
 
+            Ok(VulkanSizeDependentState {
+                vulkan_image,
+                vulkan_memory: memory,
+                gl_memory_object: memory_object,
+                gl_texture,
+                gl_draw_framebuffer: draw_framebuffer,
+                wgpu_texture,
+                ash_device: vulkan_device.clone(),
+                size,
+            })
+        }
+    }
+
+    /// Imports Vulkan surface as a WGPU texture for rendering on Linux.
+    /// Reuses existing size-dependent external memory and blits content using FBO.
+    pub fn get_wgpu_texture_from_vulkan(
+        &self,
+        wgpu_device: &wgpu::Device,
+    ) -> Result<wgpu::Texture, VulkanTextureError> {
+        let size = self.size.get();
+
+        let device = &self.surfman_rendering_info.device.borrow();
+        let mut context = self.surfman_rendering_info.context.borrow_mut();
+
+        // 1. Check if we need to recreate size-dependent resources
+        let needs_recreate = self.vulkan_state.size_dependent.borrow().as_ref().map_or(
+            true,
+            |s| s.size.width != size.width || s.size.height != size.height,
+        );
+
+        if needs_recreate {
+            if let Some(old_state) = self.vulkan_state.size_dependent.borrow_mut().take() {
+                old_state.destroy(device, &mut context, &self.surfman_rendering_info.glow_gl);
+            }
+            let new_state =
+                self.init_vulkan_size_dependent_state(device, &context, wgpu_device, size)?;
+            *self.vulkan_state.size_dependent.borrow_mut() = Some(new_state);
+        }
+
+        let size_dep = self.vulkan_state.size_dependent.borrow();
+        let state = size_dep.as_ref().unwrap();
+
+        // 2. Unbind surface from context to access its surface_info and blit
+        let surface = device
+            .unbind_surface_from_context(&mut context)
+            .map_err(VulkanTextureError::Surfman)?
+            .ok_or(VulkanTextureError::NoSurface)?;
+
+        device
+            .make_context_current(&mut context)
+            .map_err(VulkanTextureError::Surfman)?;
+
+        let surface_info = device.surface_info(&surface);
+        let read_framebuffer = surface_info
+            .framebuffer_object
+            .ok_or(VulkanTextureError::NoFramebuffer)?;
+
+        // 3. Blit from Servo's framebuffer into our cached GL draw framebuffer
+        let gl = &self.surfman_rendering_info.glow_gl;
+        unsafe {
+            gl.bind_framebuffer(gl::READ_FRAMEBUFFER, Some(read_framebuffer));
+            gl.bind_framebuffer(gl::DRAW_FRAMEBUFFER, Some(state.gl_draw_framebuffer));
+
+            gl.blit_framebuffer(
+                0,
+                0,
+                size.width as i32,
+                size.height as i32,
+                0,
+                size.height as i32,
+                size.width as i32,
+                0,
+                gl::COLOR_BUFFER_BIT,
+                gl::NEAREST,
+            );
+            gl.flush();
+
+            gl.bind_framebuffer(gl::READ_FRAMEBUFFER, None);
+            gl.bind_framebuffer(gl::DRAW_FRAMEBUFFER, None);
+        }
+
+        // 4. Re-bind surface to context
         device
             .bind_surface_to_context(&mut context, surface)
             .map_err(|(err, mut surface)| {
@@ -253,6 +335,8 @@ impl super::GPURenderingContext {
                 VulkanTextureError::Surfman(err)
             })?;
 
-        Ok(texture)
+        let wgpu_texture = state.wgpu_texture.clone();
+        drop(size_dep);
+        Ok(wgpu_texture)
     }
 }
