@@ -5959,10 +5959,12 @@ dependencies = [
 [[package]]
 name = "origiri"
 version = "0.1.0"
+source = "git+https://github.com/kakusika/origiri-frameworks.git#bb8e769a2fa61fb3b4abd1544311ea3861a65035"
 
 [[package]]
 name = "origiri-build"
 version = "0.1.0"
+source = "git+https://github.com/kakusika/origiri-frameworks.git#bb8e769a2fa61fb3b4abd1544311ea3861a65035"
 dependencies = [
  "slint-build",
 ]
@@ -5970,10 +5972,12 @@ dependencies = [
 [[package]]
 name = "origiri-mobile"
 version = "0.1.0"
+source = "git+https://github.com/kakusika/origiri-frameworks.git#bb8e769a2fa61fb3b4abd1544311ea3861a65035"
 
 [[package]]
 name = "origiri-theme"
 version = "0.1.0"
+source = "git+https://github.com/kakusika/origiri-frameworks.git#bb8e769a2fa61fb3b4abd1544311ea3861a65035"
 dependencies = [
  "mcu-material-color",
 ]
@@ -5981,6 +5985,7 @@ dependencies = [
 [[package]]
 name = "origiri-viewport"
 version = "0.1.0"
+source = "git+https://github.com/kakusika/origiri-frameworks.git#bb8e769a2fa61fb3b4abd1544311ea3861a65035"
 dependencies = [
  "anyhow",
  "ash",
@@ -9347,7 +9352,7 @@ version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1c97747dbf44bb1ca44a561ece23508e99cb592e862f22222dcf42f51d1e451"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -12538,15 +12543,3 @@ dependencies = [
  "syn 3.0.6",
  "winnow 1.0.4",
 ]
-
-[[patch.unused]]
-name = "origiri-config"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "origiri-icons"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "origiri-panes"
-version = "0.1.0"

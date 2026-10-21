@@ -1,5 +1,5 @@
 import { ScrollView } from "std-widgets.slint";
-import { IconButton } from "@origiri/widgets.slint";
+import { IconButton, SearchField } from "@origiri/widgets.slint";
 import { Icon, TablerIcons } from "@origiri-icons/icons.slint";
 import {
     Tokens,
@@ -572,50 +572,6 @@ component SettingsColorButton inherits Rectangle {
     }
 }
 
-component SearchField inherits Rectangle {
-    in-out property <string> text;
-    in property <string> placeholder: "Search...";
-    callback edited(string);
-
-    height: 32px;
-    background: Tokens.surface;
-    border-radius: Tokens.corner-radius;
-    border-width: Tokens.border-width;
-    border-color: input.has-focus ? Tokens.accent : Tokens.border-on-surface;
-
-    HorizontalLayout {
-        padding-left: Tokens.spacing-medium;
-        padding-right: Tokens.spacing-medium;
-        spacing: Tokens.spacing-small;
-
-        Icon {
-            width: 14px;
-            height: 14px;
-            source: TablerIcons.search;
-            color: Tokens.text-secondary;
-        }
-
-        input := TextInput {
-            horizontal-stretch: 1;
-            text <=> root.text;
-            color: Tokens.text-primary;
-            font-size: Tokens.font-size-small;
-            vertical-alignment: center;
-            single-line: true;
-            edited => { root.edited(self.text); }
-        }
-    }
-
-    if root.text == "" && !input.has-focus: Text {
-        x: Tokens.spacing-medium + 14px + Tokens.spacing-small;
-        y: 0px;
-        height: 100%;
-        text: root.placeholder;
-        color: Tokens.text-disabled-on-surface;
-        font-size: Tokens.font-size-small;
-        vertical-alignment: center;
-    }
-}
 
 /// Modal settings overlay.
 component SettingsLayer inherits Rectangle {
